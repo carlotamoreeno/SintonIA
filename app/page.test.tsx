@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import Home from "./page";
+import { HomePageContent } from "./home-page-content";
 
 vi.mock("next/image", () => ({
   default: ({ alt }: { alt?: string }) => <span data-alt={alt} />,
@@ -8,7 +8,7 @@ vi.mock("next/image", () => ({
 
 describe("Home", () => {
   it("renders the starter heading and documentation link", () => {
-    render(<Home />);
+    render(<HomePageContent />);
 
     expect(
       screen.getByRole("heading", {
