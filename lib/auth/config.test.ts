@@ -21,11 +21,16 @@ describe("applyJwtSessionClaims", () => {
       profile: {
         sub: "sub_123",
       },
+      user: {
+        email: "ana@example.com",
+      },
     });
 
     expect(token.provider).toBe("google");
     expect(token.authSubject).toBe("sub_123");
     expect(token.appUserId).toBe("google:sub_123");
+    expect(token.email).toBe("ana@example.com");
+    expect(token.role).toBe("user");
   });
 
   it("falls back to the existing token subject when the provider callback is absent", async () => {
@@ -38,6 +43,7 @@ describe("applyJwtSessionClaims", () => {
     expect(token.provider).toBe("google");
     expect(token.authSubject).toBe("sub_456");
     expect(token.appUserId).toBe("google:sub_456");
+    expect(token.role).toBe("user");
   });
 });
 
@@ -61,6 +67,7 @@ describe("applySessionUserClaims", () => {
     });
 
     expect(session.user.id).toBe("google:sub_789");
+    expect(session.user.role).toBe("user");
     expect(session.user.email).toBe("ana@example.com");
     expect(session.user.name).toBe("Ana");
     expect(session.user.image).toBe("https://example.com/avatar.png");

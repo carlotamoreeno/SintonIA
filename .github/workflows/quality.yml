@@ -7,6 +7,14 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      APP_BASE_URL: http://localhost:3000
+      AUTH_SECRET: ci-auth-secret
+      AUTH_TRUST_HOST: "true"
+      AUTH_GOOGLE_ID: ci-google-client-id
+      AUTH_GOOGLE_SECRET: ci-google-client-secret
+      AUTH_EXPERT_EMAILS: ""
+      AUTH_ADMIN_EMAILS: ""
 
     steps:
       - name: Checkout repository

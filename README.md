@@ -30,12 +30,18 @@ Rellena `.env.local` con los valores reales que correspondan al entorno antes de
 La plantilla versionada es [`.env.example`](./.env.example) e incluye estas familias de configuracion:
 
 - Aplicacion: `NODE_ENV`, `APP_BASE_URL`, `ACTIVE_DATASET_VERSION`
-- Auth: `AUTH_SECRET`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`
+- Auth: `AUTH_SECRET`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_EXPERT_EMAILS`, `AUTH_ADMIN_EMAILS`
 - Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_ACTIVE_VECTOR_STORE_ID`, `OPENAI_TIMEOUT_MS`
 - Runtime caps: `CHAT_MAX_MESSAGE_CHARS`, `CHAT_MAX_HISTORY_TURNS`, `CHAT_MAX_OUTPUT_TOKENS`, `CHAT_RATE_LIMIT_PER_MIN`
 
 Los valores por defecto de la plantilla reflejan los limites actuales definidos en el PRD para el MVP.
+
+Notas de auth del slice actual:
+
+- `AUTH_EXPERT_EMAILS` y `AUTH_ADMIN_EMAILS` aceptan listas separadas por comas; se normalizan con trim + lowercase.
+- `admin` prevalece sobre `expert` si un mismo email aparece en ambas listas.
+- `AUTH_URL` / `NEXTAUTH_URL` no se fijan por defecto; Auth.js usa host detection y `AUTH_TRUST_HOST=true`.
 
 ## Scripts de trabajo
 
@@ -74,4 +80,3 @@ El baseline actual de despliegue sigue el flujo Git por defecto de Vercel:
 - No se define todavia un entorno de staging publico estable; esa decision queda diferida a una task posterior.
 
 No se requiere `vercel.json` en esta fase salvo que aparezca una necesidad operativa real.
-

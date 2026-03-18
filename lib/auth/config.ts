@@ -1,7 +1,9 @@
 import type { NextAuthConfig, Session } from "next-auth";
 import Google from "next-auth/providers/google";
 import type { JWT } from "next-auth/jwt";
+import { authEnv } from "@/lib/auth/env";
 import { buildAppUserId } from "@/lib/auth/identity";
+import { isAppRole, resolveUserRole } from "@/lib/auth/roles";
 
 type JwtClaimsInput = {
   token: JWT;
@@ -11,6 +13,9 @@ type JwtClaimsInput = {
   } | null;
   profile?: {
     sub?: string | null;
+  } | null;
+  user?: {
+    email?: string | null;
   } | null;
 };
 
@@ -38,10 +43,19 @@ function resolveTokenSubject(token: JWT, input: JwtClaimsInput) {
   return typeof token.sub === "string" ? token.sub : null;
 }
 
+function resolveTokenEmail(token: JWT, user?: JwtClaimsInput["user"]) {
+  if (typeof user?.email === "string" && user.email.length > 0) {
+    return user.email;
+  }
+
+  return typeof token.email === "string" ? token.email : null;
+}
+
 export async function applyJwtSessionClaims(input: JwtClaimsInput) {
   const { token } = input;
   const provider = resolveTokenProvider(token, input.account);
   const authSubject = resolveTokenSubject(token, input);
+  const email = resolveTokenEmail(token, input.user);
 
   token.provider = provider;
 
@@ -49,6 +63,12 @@ export async function applyJwtSessionClaims(input: JwtClaimsInput) {
     token.authSubject = authSubject;
     token.appUserId = buildAppUserId(provider, authSubject);
   }
+
+  if (email) {
+    token.email = email;
+  }
+
+  token.role = resolveUserRole(email, authEnv);
 
   return token;
 }
@@ -70,6 +90,17 @@ function resolveSessionUserId(token: JWT) {
   return authSubject ? buildAppUserId(provider, authSubject) : "";
 }
 
+function resolveSessionUserRole(token: JWT) {
+  if (isAppRole(token.role)) {
+    return token.role;
+  }
+
+  return resolveUserRole(
+    typeof token.email === "string" ? token.email : null,
+    authEnv,
+  );
+}
+
 export async function applySessionUserClaims({
   session,
   token,
@@ -80,6 +111,7 @@ export async function applySessionUserClaims({
   session.user = {
     ...session.user,
     id: resolveSessionUserId(token),
+    role: resolveSessionUserRole(token),
     email:
       session.user?.email ??
       (typeof token.email === "string" ? token.email : null),
@@ -95,7 +127,8 @@ export async function applySessionUserClaims({
 }
 
 export const authConfig = {
-  trustHost: process.env.AUTH_TRUST_HOST === "true",
+  secret: authEnv.authSecret,
+  trustHost: authEnv.authTrustHost,
   session: {
     strategy: "jwt",
   },
