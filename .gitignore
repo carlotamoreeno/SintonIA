@@ -31,9 +31,13 @@ yarn-error.log*
 .pnpm-debug.log*
 
 *.md
+jira*.json
+
+scripts
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
