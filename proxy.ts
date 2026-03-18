@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { NextResponse, type NextRequest } from "next/server";
 import {
   createRequestStart,
@@ -6,7 +7,7 @@ import {
   resolveRequestId,
 } from "@/lib/observability/request-context";
 
-export function proxy(request: NextRequest) {
+export const proxy = auth((request: NextRequest) => {
   const requestHeaders = new Headers(request.headers);
   const requestId = resolveRequestId(request.headers.get(REQUEST_ID_HEADER));
   const requestStart = createRequestStart();
@@ -23,7 +24,7 @@ export function proxy(request: NextRequest) {
   response.headers.set(REQUEST_ID_HEADER, requestId);
 
   return response;
-}
+});
 
 export const config = {
   matcher: [

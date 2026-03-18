@@ -1,12 +1,32 @@
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import nextConfig from "./next.config";
 import { config, proxy } from "./proxy";
 import {
   REQUEST_ID_HEADER,
   REQUEST_START_HEADER,
 } from "@/lib/observability/request-context";
+
+vi.mock("@/auth", () => ({
+  auth: <
+    T extends (request: NextRequest) => Response | Promise<Response> | void,
+  >(
+    handler: T,
+  ) => handler,
+}));
+
+async function callProxy(request: NextRequest) {
+  const response = await (
+    proxy as unknown as (request: NextRequest) => Promise<Response> | Response
+  )(request);
+
+  if (!response) {
+    throw new Error("proxy did not return a response");
+  }
+
+  return response;
+}
 
 describe("proxy", () => {
   it("matches app and api routes while excluding static assets and prefetches", () => {
@@ -73,13 +93,13 @@ describe("proxy", () => {
     ).toBe(false);
   });
 
-  it("preserves a valid incoming request id and forwards observability headers", () => {
+  it("preserves a valid incoming request id and forwards observability headers", async () => {
     const request = new NextRequest("https://example.com/", {
       headers: {
         [REQUEST_ID_HEADER]: "req_12345678",
       },
     });
-    const response = proxy(request);
+    const response = await callProxy(request);
 
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe("req_12345678");
     expect(response.headers.get("x-middleware-override-headers")).toContain(
@@ -93,13 +113,13 @@ describe("proxy", () => {
     ).toMatch(/^\d+$/);
   });
 
-  it("generates a request id when the incoming header is invalid", () => {
+  it("generates a request id when the incoming header is invalid", async () => {
     const request = new NextRequest("https://example.com/", {
       headers: {
         [REQUEST_ID_HEADER]: "bad id",
       },
     });
-    const response = proxy(request);
+    const response = await callProxy(request);
     const generatedRequestId = response.headers.get(REQUEST_ID_HEADER);
 
     expect(generatedRequestId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/);
