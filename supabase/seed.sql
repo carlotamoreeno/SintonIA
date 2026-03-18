@@ -1,0 +1,2 @@
+-- Seed data is intentionally minimal for the MVP bootstrap.
+-- Canonical role rows are seeded inside the first app schema migration.

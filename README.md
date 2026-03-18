@@ -57,6 +57,25 @@ npm run format
 npm run format:check
 ```
 
+## Bootstrap de Supabase
+
+El repo ya usa un scaffold trackeado bajo `supabase/` como fuente de verdad para el esquema app y el bootstrap de storage.
+
+Flujo operativo actual:
+
+```bash
+npx supabase login
+npx supabase link --project-ref tkpsbxruivepsdzuddre
+npx supabase db push
+npx supabase migration list
+```
+
+Notas del slice actual:
+
+- Las migraciones cubren solo las tablas app del PRD 10.1 y el bucket privado `knowledge-documents`.
+- Las tablas `knowledge_*` siguen diferidas a `T-20`.
+- Si el pooler de Supabase devuelve throttling temporal al usar el CLI, reintenta en serie y evita lanzar varios comandos `npx supabase` en paralelo.
+
 ## Validacion minima actual
 
 Para cambios de plataforma base y pipeline de calidad como `T-02`, `T-03` y `T-05`, la validacion obligatoria es:
@@ -78,5 +97,6 @@ El baseline actual de despliegue sigue el flujo Git por defecto de Vercel:
 - `main` actua como rama de `production`.
 - Las pull requests y ramas no productivas generan `preview` deployments.
 - No se define todavia un entorno de staging publico estable; esa decision queda diferida a una task posterior.
+
 
 No se requiere `vercel.json` en esta fase salvo que aparezca una necesidad operativa real.
