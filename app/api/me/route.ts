@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { UNAUTHENTICATED_API_MESSAGE } from "@/lib/auth/access";
+import { getOptionalAppSession } from "@/lib/auth/app-session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await auth();
+  const appSession = await getOptionalAppSession();
 
-  if (!session?.user) {
+  if (!appSession?.session.user) {
     return NextResponse.json(
       {
         message: UNAUTHENTICATED_API_MESSAGE,
@@ -17,11 +17,11 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    id: session.user.id,
-    email: session.user.email ?? null,
-    name: session.user.name ?? null,
-    image: session.user.image ?? null,
-    role: session.user.role,
-    expires: session.expires,
+    id: appSession.session.user.id,
+    email: appSession.session.user.email ?? null,
+    name: appSession.session.user.name ?? null,
+    image: appSession.session.user.image ?? null,
+    role: appSession.session.user.role,
+    expires: appSession.session.expires,
   });
 }

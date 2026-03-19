@@ -1,15 +1,15 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { SignOutForm } from "@/components/auth/sign-out-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
+import { getOptionalAppSession } from "@/lib/auth/app-session";
 import { ChatPageContent } from "./chat-page-content";
 
 export const dynamic = "force-dynamic";
 
 export default async function ChatPage() {
-  const session = await auth();
+  const appSession = await getOptionalAppSession();
 
-  if (!session?.user) {
+  if (!appSession?.session.user) {
     redirect(buildRelativeSignInUrl("/chat"));
   }
 
@@ -17,10 +17,10 @@ export default async function ChatPage() {
     <ChatPageContent
       signOutControl={<SignOutForm />}
       user={{
-        id: session.user.id,
-        email: session.user.email ?? null,
-        name: session.user.name ?? null,
-        role: session.user.role,
+        id: appSession.session.user.id,
+        email: appSession.session.user.email ?? null,
+        name: appSession.session.user.name ?? null,
+        role: appSession.session.user.role,
       }}
     />
   );

@@ -12,6 +12,7 @@ type JwtClaimsInput = {
     providerAccountId?: string | null;
   } | null;
   profile?: {
+    email_verified?: boolean | null;
     sub?: string | null;
   } | null;
   user?: {
@@ -51,11 +52,23 @@ function resolveTokenEmail(token: JWT, user?: JwtClaimsInput["user"]) {
   return typeof token.email === "string" ? token.email : null;
 }
 
+function resolveTokenEmailVerified(
+  token: JWT,
+  profile?: JwtClaimsInput["profile"],
+) {
+  if (typeof profile?.email_verified === "boolean") {
+    return profile.email_verified;
+  }
+
+  return typeof token.emailVerified === "boolean" ? token.emailVerified : false;
+}
+
 export async function applyJwtSessionClaims(input: JwtClaimsInput) {
   const { token } = input;
   const provider = resolveTokenProvider(token, input.account);
   const authSubject = resolveTokenSubject(token, input);
   const email = resolveTokenEmail(token, input.user);
+  const emailVerified = resolveTokenEmailVerified(token, input.profile);
 
   token.provider = provider;
 
@@ -68,6 +81,7 @@ export async function applyJwtSessionClaims(input: JwtClaimsInput) {
     token.email = email;
   }
 
+  token.emailVerified = emailVerified;
   token.role = resolveUserRole(email, authEnv);
 
   return token;
@@ -115,6 +129,8 @@ export async function applySessionUserClaims({
     email:
       session.user?.email ??
       (typeof token.email === "string" ? token.email : null),
+    emailVerified:
+      typeof token.emailVerified === "boolean" ? token.emailVerified : false,
     name:
       session.user?.name ??
       (typeof token.name === "string" ? token.name : null),

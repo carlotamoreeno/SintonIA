@@ -15,6 +15,8 @@ jobs:
       AUTH_GOOGLE_SECRET: ci-google-client-secret
       AUTH_EXPERT_EMAILS: ""
       AUTH_ADMIN_EMAILS: ""
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
 
     steps:
       - name: Checkout repository

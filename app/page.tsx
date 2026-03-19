@@ -1,8 +1,8 @@
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { auth } from "@/auth";
 import { GoogleSignInForm } from "@/components/auth/google-sign-in-form";
 import { SignOutForm } from "@/components/auth/sign-out-form";
+import { getOptionalAppSession } from "@/lib/auth/app-session";
 import {
   calculateLatencyMs,
   REQUEST_ID_HEADER,
@@ -15,16 +15,16 @@ import { HomePageContent } from "./home-page-content";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const session = await auth();
+  const appSession = await getOptionalAppSession();
   const requestHeaders = await headers();
   const requestId = resolveRequestId(requestHeaders.get(REQUEST_ID_HEADER));
   const requestStart = requestHeaders.get(REQUEST_START_HEADER);
-  const user = session?.user
+  const user = appSession?.session.user
     ? {
-        id: session.user.id,
-        email: session.user.email ?? null,
-        name: session.user.name ?? null,
-        image: session.user.image ?? null,
+        id: appSession.session.user.id,
+        email: appSession.session.user.email ?? null,
+        name: appSession.session.user.name ?? null,
+        image: appSession.session.user.image ?? null,
       }
     : null;
 
