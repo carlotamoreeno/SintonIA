@@ -35,7 +35,7 @@ La plantilla versionada es [`.env.example`](./.env.example) e incluye estas fami
 - OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_ACTIVE_VECTOR_STORE_ID`, `OPENAI_TIMEOUT_MS`
 - Runtime caps: `CHAT_MAX_MESSAGE_CHARS`, `CHAT_MAX_HISTORY_TURNS`, `CHAT_MAX_OUTPUT_TOKENS`, `CHAT_RATE_LIMIT_PER_MIN`
 
-Los valores por defecto de la plantilla reflejan los limites actuales definidos en el PRD para el MVP.
+Los valores por defecto de la plantilla reflejan los limites actuales definidos en el MVP.
 
 Notas de auth del slice actual:
 
