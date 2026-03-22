@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { GoogleSignInForm } from "@/components/auth/google-sign-in-form";
 import { SignOutForm } from "@/components/auth/sign-out-form";
 import { getOptionalAppSession } from "@/lib/auth/app-session";
 import {
@@ -45,8 +44,9 @@ export default async function Home() {
 
   return (
     <HomePageContent
-      signInControl={<GoogleSignInForm />}
-      signOutControl={<SignOutForm />}
+      signOutControl={
+        <SignOutForm buttonClassName="h-11 rounded-lg bg-white/75 px-4 text-sm shadow-none backdrop-blur hover:bg-white" />
+      }
       user={user}
     />
   );

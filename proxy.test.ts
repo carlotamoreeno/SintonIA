@@ -169,7 +169,7 @@ describe("proxy", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://example.com/api/auth/signin?callbackUrl=https%3A%2F%2Fexample.com%2Fchat",
+      "https://example.com/sign-in?callbackUrl=%2Fchat",
     );
     expect(response.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });

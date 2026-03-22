@@ -3,28 +3,23 @@ import { describe, expect, it } from "vitest";
 import { HomePageContent } from "./home-page-content";
 
 describe("Home", () => {
-  it("renders the Google sign-in control for signed-out visitors", () => {
-    render(
-      <HomePageContent
-        signInControl={<button type="button">Continuar con Google</button>}
-        user={null}
-      />,
-    );
+  it("renders the marketing landing state for signed-out visitors", () => {
+    render(<HomePageContent user={null} />);
 
     expect(
       screen.getByRole("heading", {
-        name: /sintonia prepara un acceso oauth limpio/i,
+        name: /entiende tus plantas, sintoniza con la naturaleza/i,
       }),
     ).toBeInTheDocument();
 
     expect(
-      screen.getByRole("button", {
-        name: /continuar con google/i,
+      screen.getByRole("link", {
+        name: /empieza gratis/i,
       }),
     ).toBeInTheDocument();
   });
 
-  it("renders the authenticated user state and sign-out control", () => {
+  it("keeps the landing layout for authenticated users while exposing chat and sign-out controls", () => {
     render(
       <HomePageContent
         signOutControl={<button type="button">Cerrar sesion</button>}
@@ -37,9 +32,11 @@ describe("Home", () => {
       />,
     );
 
-    expect(screen.getByText("Ana")).toBeInTheDocument();
-    expect(screen.getByText("ana@example.com")).toBeInTheDocument();
-    expect(screen.getByText("google:sub_123")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", {
+        name: /abrir chat/i,
+      }),
+    ).toHaveLength(2);
     expect(
       screen.getByRole("button", {
         name: /cerrar sesion/i,

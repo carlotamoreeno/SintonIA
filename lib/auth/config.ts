@@ -145,6 +145,9 @@ export async function applySessionUserClaims({
 export const authConfig = {
   secret: authEnv.authSecret,
   trustHost: authEnv.authTrustHost,
+  pages: {
+    signIn: "/sign-in",
+  },
   session: {
     strategy: "jwt",
   },

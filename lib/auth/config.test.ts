@@ -2,9 +2,17 @@ import type { Session } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import { describe, expect, it } from "vitest";
 import { buildAppUserId, parseAppUserId } from "@/lib/auth/identity";
-import { applyJwtSessionClaims, applySessionUserClaims } from "./config";
+import {
+  applyJwtSessionClaims,
+  applySessionUserClaims,
+  authConfig,
+} from "./config";
 
 describe("buildAppUserId", () => {
+  it("exposes the custom app-owned sign-in page", () => {
+    expect(authConfig.pages?.signIn).toBe("/sign-in");
+  });
+
   it("derives a stable app user id from provider and subject", () => {
     expect(buildAppUserId("google", "sub_123")).toBe("google:sub_123");
   });

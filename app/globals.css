@@ -7,7 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -48,38 +49,47 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --background: #fbf9f1;
+  --foreground: #1b1c17;
+  --card: #ffffff;
+  --card-foreground: #1b1c17;
+  --popover: #ffffff;
+  --popover-foreground: #1b1c17;
+  --primary: #274f3d;
+  --primary-foreground: #fbf9f1;
+  --secondary: #e4e2db;
+  --secondary-foreground: #274f3d;
+  --muted: #f6f4ec;
+  --muted-foreground: #566342;
+  --accent: #d7e5bb;
+  --accent-foreground: #5a6745;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: rgba(191, 201, 193, 0.55);
+  --input: rgba(191, 201, 193, 0.55);
+  --ring: #566342;
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 1rem;
+  --sidebar: #f0eee6;
+  --sidebar-foreground: #1b1c17;
+  --sidebar-primary: #274f3d;
+  --sidebar-primary-foreground: #fbf9f1;
+  --sidebar-accent: #e4e2db;
+  --sidebar-accent-foreground: #274f3d;
+  --sidebar-border: rgba(191, 201, 193, 0.55);
+  --sidebar-ring: #566342;
+  --botanical-forest: #274f3d;
+  --botanical-moss: #566342;
+  --botanical-sand: #f6f4ec;
+  --botanical-stone: #e4e2db;
+  --botanical-lime: #d7e5bb;
+  --botanical-mint: #c1ecd4;
+  --botanical-ink: #1b1c17;
+  --botanical-copy: #404943;
+  --botanical-border: rgba(191, 201, 193, 0.55);
 }
 
 .dark {
@@ -120,10 +130,60 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply scroll-smooth;
+    font-family: var(--font-inter), sans-serif;
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-inter), sans-serif;
+    background-image:
+      radial-gradient(circle at top, rgba(215, 229, 187, 0.2), transparent 35%),
+      linear-gradient(180deg, #fbf9f1 0%, #ffffff 100%);
   }
-  html {
-    @apply font-sans;
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-manrope), sans-serif;
+  }
+
+  .font-sans {
+    font-family: var(--font-inter), sans-serif;
+  }
+
+  .botanical-shell {
+    background:
+      radial-gradient(
+        circle at top,
+        rgba(215, 229, 187, 0.28),
+        transparent 30%
+      ),
+      linear-gradient(180deg, #fbf9f1 0%, #ffffff 100%);
+  }
+
+  .botanical-surface {
+    border: 1px solid var(--botanical-border);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow:
+      0 20px 25px -5px rgba(39, 79, 61, 0.06),
+      0 8px 10px -6px rgba(39, 79, 61, 0.06);
+  }
+
+  .botanical-glass {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(251, 249, 241, 0.7);
+    backdrop-filter: blur(20px);
+    box-shadow:
+      0 20px 25px -5px rgba(0, 0, 0, 0.1),
+      0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  }
+
+  .botanical-focus {
+    @apply focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#566342]/30;
+  }
+
+  .botanical-placeholder {
+    @apply cursor-default select-none text-[#566342];
   }
 }
