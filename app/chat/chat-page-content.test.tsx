@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ChatPageContent } from "./chat-page-content";
 
@@ -56,6 +56,20 @@ describe("ChatPageContent", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/starter tier|expert tier|admin tier/i),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the suggestion chips wired to the composer draft", () => {
+    render(<ChatPageContent {...defaultProps} history={[]} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /cuidado de suculentas/i,
+      }),
+    );
+
+    expect(
+      screen.getByText("Formulario 4000 Cuidado de suculentas"),
     ).toBeInTheDocument();
   });
 

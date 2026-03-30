@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { LoaderCircle, Mic, Plus, SendHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createConversationAction } from "./actions";
@@ -22,12 +22,19 @@ export function CreateConversationForm({
     createConversationAction,
     initialCreateConversationFormState,
   );
+  const previousActionStateRef = useRef(state);
 
   useEffect(() => {
+    if (previousActionStateRef.current === state) {
+      return;
+    }
+
+    previousActionStateRef.current = state;
+
     if (state.message !== message) {
       onMessageChange(state.message);
     }
-  }, [message, onMessageChange, state.message]);
+  }, [message, onMessageChange, state]);
 
   return (
     <form
