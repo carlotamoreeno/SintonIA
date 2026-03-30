@@ -1,18 +1,9 @@
 import "server-only";
 
-import OpenAI from "openai";
-import { openAIServerEnv, type OpenAIServerEnv } from "./env";
+import { createOpenAIClient } from "./client-core";
+import { openAIServerEnv } from "./env";
 
-export const OPENAI_MAX_RETRIES = 1;
-
-export function createOpenAIClient(env: OpenAIServerEnv) {
-  return new OpenAI({
-    apiKey: env.apiKey,
-    timeout: env.timeoutMs,
-    maxRetries: OPENAI_MAX_RETRIES,
-  });
-}
-
-export type OpenAIClient = ReturnType<typeof createOpenAIClient>;
+export { OPENAI_MAX_RETRIES, createOpenAIClient } from "./client-core";
+export type { OpenAIClient, OpenAIClientConfig } from "./client-core";
 
 export const openAIClient = createOpenAIClient(openAIServerEnv);

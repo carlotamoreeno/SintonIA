@@ -5,14 +5,17 @@ vi.mock("./client", () => ({
   openAIClient: {
     files: {
       create: vi.fn(),
+      retrieve: vi.fn(),
     },
     responses: {
       create: vi.fn(),
     },
     vectorStores: {
       create: vi.fn(),
+      search: vi.fn(),
       files: {
         create: vi.fn(),
+        retrieve: vi.fn(),
       },
     },
   },
@@ -29,14 +32,17 @@ function createMockClient() {
   return {
     files: {
       create: vi.fn(),
+      retrieve: vi.fn(),
     },
     responses: {
       create: vi.fn(),
     },
     vectorStores: {
       create: vi.fn(),
+      search: vi.fn(),
       files: {
         create: vi.fn(),
+        retrieve: vi.fn(),
       },
     },
   } satisfies OpenAIAdapterClient;
@@ -95,6 +101,25 @@ describe("createOpenAIAdapter", () => {
     expect(result).toBe(expectedFile);
   });
 
+  it("delegates file retrieval without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedFile = {
+      _request_id: "req_file_retrieve_123",
+      filename: "manual.pdf",
+      id: "file_123",
+      object: "file",
+      purpose: "assistants",
+      status: "processed",
+    };
+    client.files.retrieve.mockResolvedValue(expectedFile as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.retrieveFile("file_123");
+
+    expect(client.files.retrieve).toHaveBeenCalledWith("file_123", undefined);
+    expect(result).toBe(expectedFile);
+  });
+
   it("delegates vector store creation without reshaping the SDK result", async () => {
     const client = createMockClient();
     const expectedVectorStore = {
@@ -144,6 +169,70 @@ describe("createOpenAIAdapter", () => {
       undefined,
     );
     expect(result).toBe(expectedVectorStoreFile);
+  });
+
+  it("delegates vector store file retrieval without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedVectorStoreFile = {
+      _request_id: "req_vsf_retrieve_123",
+      id: "vs_file_123",
+      object: "vector_store.file",
+      status: "completed",
+      vector_store_id: "vs_123",
+    };
+    client.vectorStores.files.retrieve.mockResolvedValue(
+      expectedVectorStoreFile as never,
+    );
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.retrieveVectorStoreFile("vs_123", "file_123");
+
+    expect(client.vectorStores.files.retrieve).toHaveBeenCalledWith(
+      "file_123",
+      {
+        vector_store_id: "vs_123",
+      },
+      undefined,
+    );
+    expect(result).toBe(expectedVectorStoreFile);
+  });
+
+  it("delegates vector store search without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedSearchResult = {
+      data: [
+        {
+          attributes: {
+            doc_id: "botanica-mvp-v1-corpus-mvp",
+          },
+          content: [
+            {
+              text: "Fragmento botánico",
+              type: "text",
+            },
+          ],
+          file_id: "file_123",
+          filename: "manual.pdf",
+          score: 0.98,
+        },
+      ],
+      object: "list",
+    };
+    client.vectorStores.search.mockResolvedValue(expectedSearchResult as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.searchVectorStore("vs_123", {
+      query: "botanica",
+    } as never);
+
+    expect(client.vectorStores.search).toHaveBeenCalledWith(
+      "vs_123",
+      {
+        query: "botanica",
+      },
+      undefined,
+    );
+    expect(result).toBe(expectedSearchResult);
   });
 
   it("wraps upstream SDK failures in an OpenAIAdapterError", async () => {
