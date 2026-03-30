@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { supabaseAdmin, type SupabaseAdminClient } from "./client";
 
-const knowledgeDocumentCatalogRowSchema = z.object({
+const existingKnowledgeDocumentCatalogRowSchema = z.object({
   canonical_path: z.string().min(1),
   created_at: z.string().datetime({ offset: true }),
   dataset_version: z.string().min(1),
@@ -15,8 +15,24 @@ const knowledgeDocumentCatalogRowSchema = z.object({
   title: z.string().min(1),
 });
 
-type KnowledgeDocumentCatalogRow = z.infer<
-  typeof knowledgeDocumentCatalogRowSchema
+const knowledgeDocumentCatalogDocumentRowSchema =
+  existingKnowledgeDocumentCatalogRowSchema.extend({
+    custom_metadata_json: z.record(z.string(), z.unknown()),
+    last_error: z.string().nullable(),
+    last_indexed_at: z.string().datetime({ offset: true }).nullable(),
+    mime_type: z.string().min(1),
+    openai_file_id: z.string().min(1).nullable(),
+    original_filename: z.string().min(1),
+    updated_at: z.string().datetime({ offset: true }),
+    vector_store_id: z.string().min(1).nullable(),
+  });
+
+type ExistingKnowledgeDocumentCatalogRow = z.infer<
+  typeof existingKnowledgeDocumentCatalogRowSchema
+>;
+
+type KnowledgeDocumentCatalogDocumentRow = z.infer<
+  typeof knowledgeDocumentCatalogDocumentRowSchema
 >;
 
 type KnowledgeDocumentCatalogStoreClient = Pick<SupabaseAdminClient, "from">;
@@ -33,14 +49,30 @@ export type ExistingKnowledgeDocument = {
   title: string;
 };
 
+export type KnowledgeDocumentCatalogDocument = ExistingKnowledgeDocument & {
+  customMetadata: Record<string, unknown>;
+  lastError: string | null;
+  lastIndexedAt: string | null;
+  mimeType: string;
+  openAIFileId: string | null;
+  originalFilename: string;
+  updatedAt: string;
+  vectorStoreId: string | null;
+};
+
 export type KnowledgeDocumentCatalogStore = {
   findFirstDocumentBySha256(
     sha256: string,
   ): Promise<ExistingKnowledgeDocument | null>;
+  findDocumentByIdentity(input: {
+    datasetVersion: string;
+    docId: string;
+    documentVersion: number;
+  }): Promise<KnowledgeDocumentCatalogDocument | null>;
 };
 
 function mapExistingKnowledgeDocument(
-  row: KnowledgeDocumentCatalogRow,
+  row: ExistingKnowledgeDocumentCatalogRow,
 ): ExistingKnowledgeDocument {
   return {
     id: row.id,
@@ -52,6 +84,22 @@ function mapExistingKnowledgeDocument(
     sha256: row.sha256,
     status: row.status,
     createdAt: row.created_at,
+  };
+}
+
+function mapKnowledgeDocumentCatalogDocument(
+  row: KnowledgeDocumentCatalogDocumentRow,
+): KnowledgeDocumentCatalogDocument {
+  return {
+    ...mapExistingKnowledgeDocument(row),
+    customMetadata: row.custom_metadata_json,
+    lastError: row.last_error,
+    lastIndexedAt: row.last_indexed_at,
+    mimeType: row.mime_type,
+    openAIFileId: row.openai_file_id,
+    originalFilename: row.original_filename,
+    updatedAt: row.updated_at,
+    vectorStoreId: row.vector_store_id,
   };
 }
 
@@ -70,7 +118,7 @@ export function createKnowledgeDocumentCatalogStore(
           ascending: true,
         })
         .limit(1)
-        .returns<KnowledgeDocumentCatalogRow[]>();
+        .returns<ExistingKnowledgeDocumentCatalogRow[]>();
 
       if (error) {
         throw new Error(
@@ -78,11 +126,36 @@ export function createKnowledgeDocumentCatalogStore(
         );
       }
 
-      const row = knowledgeDocumentCatalogRowSchema
+      const row = existingKnowledgeDocumentCatalogRowSchema
         .array()
         .parse(data ?? [])[0];
 
       return row ? mapExistingKnowledgeDocument(row) : null;
+    },
+
+    async findDocumentByIdentity(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .select(
+          "id, doc_id, title, original_filename, document_version, status, canonical_path, mime_type, sha256, dataset_version, openai_file_id, vector_store_id, custom_metadata_json, last_indexed_at, last_error, created_at, updated_at",
+        )
+        .eq("dataset_version", input.datasetVersion)
+        .eq("doc_id", input.docId)
+        .eq("document_version", input.documentVersion)
+        .limit(1)
+        .returns<KnowledgeDocumentCatalogDocumentRow[]>();
+
+      if (error) {
+        throw new Error(
+          `Failed to load knowledge document by identity: ${error.message}`,
+        );
+      }
+
+      const row = knowledgeDocumentCatalogDocumentRowSchema
+        .array()
+        .parse(data ?? [])[0];
+
+      return row ? mapKnowledgeDocumentCatalogDocument(row) : null;
     },
   };
 }

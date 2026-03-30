@@ -2,33 +2,23 @@ import "server-only";
 
 import { z } from "zod";
 import {
+  knowledgeDocumentCandidateSchema,
+  knowledgeDocumentMetadataSchema,
+  KNOWLEDGE_DOCUMENT_ALLOWED_MIME_TYPES,
+  MAX_KNOWLEDGE_DOCUMENT_SIZE_BYTES,
+} from "./document-metadata";
+import {
   knowledgeDocumentCatalogStore,
   type ExistingKnowledgeDocument,
   type KnowledgeDocumentCatalogStore,
 } from "@/lib/supabase/knowledge-document-store";
 
-export const KNOWLEDGE_DOCUMENT_ALLOWED_MIME_TYPES = [
-  "application/pdf",
-] as const;
-export const MAX_KNOWLEDGE_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024;
-
-const knowledgeDocumentCandidateSchema = z.object({
-  datasetVersion: z.string().trim().min(1),
-  docId: z.string().trim().min(1),
-  mimeType: z
-    .string()
-    .trim()
-    .min(1)
-    .transform((value) => value.toLowerCase()),
-  originalFilename: z.string().trim().min(1),
-  sha256: z
-    .string()
-    .trim()
-    .min(1)
-    .transform((value) => value.toLowerCase()),
-  sizeBytes: z.number().int().nonnegative(),
-  title: z.string().trim().min(1),
-});
+export {
+  knowledgeDocumentCandidateSchema,
+  knowledgeDocumentMetadataSchema,
+  KNOWLEDGE_DOCUMENT_ALLOWED_MIME_TYPES,
+  MAX_KNOWLEDGE_DOCUMENT_SIZE_BYTES,
+};
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
 

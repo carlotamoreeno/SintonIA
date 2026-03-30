@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 1,
+  "documents": [
+    {
+      "bucket": "knowledge-documents",
+      "datasetVersion": "mvp-2026-03",
+      "docId": "botanica-mvp-v1-corpus-mvp",
+      "title": "Corpus MVP botánico · botanica-mvp-v1",
+      "originalFilename": "botanica-mvp-v1-corpus-mvp.pdf",
+      "documentVersion": 1,
+      "sha256": "6cca3cc352d6a96c24c5a9d4834cf2f7e780ddfe9e561b7994480dc39535d8b6",
+      "canonicalPath": "datasets/mvp-2026-03/botanica-mvp-v1-corpus-mvp/v1/6cca3cc352d6a96c24c5a9d4834cf2f7e780ddfe9e561b7994480dc39535d8b6--botanica-mvp-v1-corpus-mvp.pdf",
+      "mimeType": "application/pdf",
+      "sizeBytes": 131989,
+      "status": "ready",
+      "customMetadata": {},
+      "openaiFileId": "file-ASiQHbsz76KbGc6o7WMfE3",
+      "openaiFilePurpose": "assistants",
+      "openaiFileStatus": "processed",
+      "vectorStoreId": "vs_69ca9b4e5e2081919bec55eb91742f70",
+      "vectorStoreFileStatus": "completed",
+      "lastErrorExpected": null,
+      "searchProbe": "botanica"
+    }
+  ]
+}
