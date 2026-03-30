@@ -43,6 +43,11 @@ Notas de auth del slice actual:
 - `admin` prevalece sobre `expert` si un mismo email aparece en ambas listas.
 - `AUTH_URL` / `NEXTAUTH_URL` no se fijan por defecto; Auth.js usa host detection y `AUTH_TRUST_HOST=true`.
 
+Notas de OpenAI del slice actual:
+
+- `OPENAI_MODEL` usa `gpt-5-nano` como default server-only del MVP cuando no se define explicitamente.
+- `OPENAI_ACTIVE_VECTOR_STORE_ID` es obligatorio y debe apuntar al vector store activo del entorno.
+
 ## Scripts de trabajo
 
 ```bash

@@ -12,6 +12,15 @@ vi.mock("openai", () => ({
   default: openAIConstructorMock,
 }));
 
+vi.mock("./env", () => ({
+  openAIServerEnv: {
+    activeVectorStoreId: "vs_test_active",
+    apiKey: "sk-test-key",
+    model: "gpt-5-nano",
+    timeoutMs: 45000,
+  },
+}));
+
 describe("createOpenAIClient", () => {
   it("creates a server-only client with bounded retries and timeout", async () => {
     const { createOpenAIClient, OPENAI_MAX_RETRIES } = await import("./client");

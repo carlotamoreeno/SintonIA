@@ -18,6 +18,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
       OPENAI_API_KEY: ci-openai-api-key
+      OPENAI_MODEL: gpt-5-nano
+      OPENAI_ACTIVE_VECTOR_STORE_ID: vs_ci_active_vector_store
       OPENAI_TIMEOUT_MS: "30000"
 
     steps:
