@@ -75,6 +75,7 @@ function createDeps() {
         updatedAt: "2026-03-30T15:37:24.868Z",
       }),
       findFirstDocumentBySha256: vi.fn(),
+      recordOpenAIUploadResult: vi.fn(),
     },
     openAI: {
       retrieveFile: vi.fn().mockResolvedValue({

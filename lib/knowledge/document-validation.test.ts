@@ -9,6 +9,7 @@ function createMockStore() {
   return {
     findDocumentByIdentity: vi.fn(),
     findFirstDocumentBySha256: vi.fn().mockResolvedValue(null),
+    recordOpenAIUploadResult: vi.fn(),
   };
 }
 

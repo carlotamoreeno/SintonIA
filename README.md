@@ -56,6 +56,7 @@ npm run build
 npm run start
 npm run lint
 npm run lint:fix
+npm run knowledge:openai:upload -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run test
 npm run typecheck
 npm run format
@@ -75,6 +76,24 @@ npm run build
 ```
 
 El workflow de CI `quality` vive en [`.github/workflows/quality.yml`](./.github/workflows/quality.yml) y ejecuta esa misma secuencia en GitHub Actions. El bloqueo efectivo de merges depende de exigir ese check en la configuracion del repositorio.
+
+## Operaciones de conocimiento
+
+Para el slice actual de ingesta OpenAI existe un upload reproducible desde el catalogo canonico:
+
+```bash
+npm run knowledge:openai:upload -- --dataset-version mvp-2026-03 --doc-id botanica-mvp-v1-corpus-mvp --document-version 1
+```
+
+El comando:
+
+- carga la fila exacta desde `knowledge_documents`;
+- descarga el objeto canonico desde el bucket privado `knowledge-documents`;
+- sube el archivo a OpenAI Files API con `purpose=assistants`;
+- espera al estado terminal del archivo;
+- actualiza `knowledge_documents` con `openai_file_id`, `status=uploaded|failed` y `last_error`.
+
+Si la fila ya tiene `openai_file_id` o esta `retired`, el comando falla sin re-subir el documento.
 
 ## Despliegue en Vercel
 

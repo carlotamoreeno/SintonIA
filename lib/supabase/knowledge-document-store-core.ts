@@ -1,6 +1,15 @@
 import { z } from "zod";
 import type { SupabaseAdminClient } from "./client-core";
 
+const knowledgeDocumentCatalogStatusSchema = z.enum([
+  "pending",
+  "uploaded",
+  "attached",
+  "ready",
+  "failed",
+  "retired",
+]);
+
 const existingKnowledgeDocumentCatalogRowSchema = z.object({
   canonical_path: z.string().min(1),
   created_at: z.string().datetime({ offset: true }),
@@ -9,7 +18,7 @@ const existingKnowledgeDocumentCatalogRowSchema = z.object({
   document_version: z.number().int().positive(),
   id: z.string().min(1),
   sha256: z.string().min(1),
-  status: z.string().min(1),
+  status: knowledgeDocumentCatalogStatusSchema,
   title: z.string().min(1),
 });
 
@@ -33,6 +42,10 @@ type KnowledgeDocumentCatalogDocumentRow = z.infer<
   typeof knowledgeDocumentCatalogDocumentRowSchema
 >;
 
+export type KnowledgeDocumentCatalogStatus = z.infer<
+  typeof knowledgeDocumentCatalogStatusSchema
+>;
+
 export type KnowledgeDocumentCatalogStoreClient = Pick<
   SupabaseAdminClient,
   "from"
@@ -46,7 +59,7 @@ export type ExistingKnowledgeDocument = {
   documentVersion: number;
   id: string;
   sha256: string;
-  status: string;
+  status: KnowledgeDocumentCatalogStatus;
   title: string;
 };
 
@@ -70,7 +83,24 @@ export type KnowledgeDocumentCatalogStore = {
     docId: string;
     documentVersion: number;
   }): Promise<KnowledgeDocumentCatalogDocument | null>;
+  recordOpenAIUploadResult(input: {
+    datasetVersion: string;
+    docId: string;
+    documentVersion: number;
+    lastError: string | null;
+    openAIFileId: string | null;
+    status: Extract<KnowledgeDocumentCatalogStatus, "uploaded" | "failed">;
+  }): Promise<KnowledgeDocumentCatalogDocument>;
 };
+
+const existingKnowledgeDocumentSelect =
+  "id, doc_id, title, document_version, dataset_version, canonical_path, sha256, status, created_at";
+const knowledgeDocumentCatalogDocumentSelect =
+  "id, doc_id, title, original_filename, document_version, status, canonical_path, mime_type, sha256, dataset_version, openai_file_id, vector_store_id, custom_metadata_json, last_indexed_at, last_error, created_at, updated_at";
+
+function getCurrentTimestamp() {
+  return new Date().toISOString();
+}
 
 function mapExistingKnowledgeDocument(
   row: ExistingKnowledgeDocumentCatalogRow,
@@ -111,9 +141,7 @@ export function createKnowledgeDocumentCatalogStore(
     async findFirstDocumentBySha256(sha256) {
       const { data, error } = await client
         .from("knowledge_documents")
-        .select(
-          "id, doc_id, title, document_version, dataset_version, canonical_path, sha256, status, created_at",
-        )
+        .select(existingKnowledgeDocumentSelect)
         .eq("sha256", sha256)
         .order("created_at", {
           ascending: true,
@@ -137,9 +165,7 @@ export function createKnowledgeDocumentCatalogStore(
     async findDocumentByIdentity(input) {
       const { data, error } = await client
         .from("knowledge_documents")
-        .select(
-          "id, doc_id, title, original_filename, document_version, status, canonical_path, mime_type, sha256, dataset_version, openai_file_id, vector_store_id, custom_metadata_json, last_indexed_at, last_error, created_at, updated_at",
-        )
+        .select(knowledgeDocumentCatalogDocumentSelect)
         .eq("dataset_version", input.datasetVersion)
         .eq("doc_id", input.docId)
         .eq("document_version", input.documentVersion)
@@ -157,6 +183,32 @@ export function createKnowledgeDocumentCatalogStore(
         .parse(data ?? [])[0];
 
       return row ? mapKnowledgeDocumentCatalogDocument(row) : null;
+    },
+
+    async recordOpenAIUploadResult(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .update({
+          last_error: input.lastError,
+          openai_file_id: input.openAIFileId,
+          status: input.status,
+          updated_at: getCurrentTimestamp(),
+        })
+        .eq("dataset_version", input.datasetVersion)
+        .eq("doc_id", input.docId)
+        .eq("document_version", input.documentVersion)
+        .select(knowledgeDocumentCatalogDocumentSelect)
+        .single<KnowledgeDocumentCatalogDocumentRow>();
+
+      if (error || !data) {
+        throw new Error(
+          `Failed to record knowledge document OpenAI upload result: ${error?.message}`,
+        );
+      }
+
+      return mapKnowledgeDocumentCatalogDocument(
+        knowledgeDocumentCatalogDocumentRowSchema.parse(data),
+      );
     },
   };
 }

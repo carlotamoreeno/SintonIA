@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const KNOWLEDGE_DOCUMENTS_STORAGE_BUCKET = "knowledge-documents";
+
 export const KNOWLEDGE_DOCUMENT_ALLOWED_MIME_TYPES = [
   "application/pdf",
 ] as const;

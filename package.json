@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "knowledge:openai:upload": "tsx ./tools/knowledge/upload-document-to-openai.mts",
     "knowledge:manifest:verify": "tsx ./tools/knowledge/verify-initial-manifest.mts",
     "test": "vitest run",
     "typecheck": "next typegen && mkdir -p .next/types && touch .next/types/cache-life.d.ts && npx tsc --noEmit --incremental false",

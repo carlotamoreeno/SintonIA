@@ -6,6 +6,7 @@ vi.mock("./client", () => ({
     files: {
       create: vi.fn(),
       retrieve: vi.fn(),
+      waitForProcessing: vi.fn(),
     },
     responses: {
       create: vi.fn(),
@@ -33,6 +34,7 @@ function createMockClient() {
     files: {
       create: vi.fn(),
       retrieve: vi.fn(),
+      waitForProcessing: vi.fn(),
     },
     responses: {
       create: vi.fn(),
@@ -117,6 +119,31 @@ describe("createOpenAIAdapter", () => {
     const result = await adapter.retrieveFile("file_123");
 
     expect(client.files.retrieve).toHaveBeenCalledWith("file_123", undefined);
+    expect(result).toBe(expectedFile);
+  });
+
+  it("delegates file processing polling without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedFile = {
+      _request_id: "req_file_poll_123",
+      filename: "manual.pdf",
+      id: "file_123",
+      object: "file",
+      purpose: "assistants",
+      status: "processed",
+    };
+    client.files.waitForProcessing.mockResolvedValue(expectedFile as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.waitForFileProcessing("file_123", {
+      maxWait: 60_000,
+      pollInterval: 1_000,
+    });
+
+    expect(client.files.waitForProcessing).toHaveBeenCalledWith("file_123", {
+      maxWait: 60_000,
+      pollInterval: 1_000,
+    });
     expect(result).toBe(expectedFile);
   });
 

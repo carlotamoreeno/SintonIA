@@ -16,6 +16,12 @@ export type OpenAIFilesCreateOptions = Parameters<OpenAI["files"]["create"]>[1];
 export type OpenAIFilesCreateResult = Awaited<
   ReturnType<OpenAI["files"]["create"]>
 >;
+export type OpenAIFileWaitForProcessingOptions = Parameters<
+  OpenAI["files"]["waitForProcessing"]
+>[1];
+export type OpenAIFileWaitForProcessingResult = Awaited<
+  ReturnType<OpenAI["files"]["waitForProcessing"]>
+>;
 export type OpenAIFileRetrieveOptions = Parameters<
   OpenAI["files"]["retrieve"]
 >[1];
@@ -64,7 +70,10 @@ type OpenAIVectorStoreFilesClient = Pick<
 >;
 
 export type OpenAIAdapterClient = {
-  files: Pick<OpenAIClient["files"], "create" | "retrieve">;
+  files: Pick<
+    OpenAIClient["files"],
+    "create" | "retrieve" | "waitForProcessing"
+  >;
   responses: Pick<OpenAIClient["responses"], "create">;
   vectorStores: Pick<OpenAIClient["vectorStores"], "create" | "search"> & {
     files: OpenAIVectorStoreFilesClient;
@@ -84,6 +93,10 @@ export type OpenAIAdapter = {
     fileId: string,
     options?: OpenAIFileRetrieveOptions,
   ): Promise<OpenAIFileRetrieveResult>;
+  waitForFileProcessing(
+    fileId: string,
+    options?: OpenAIFileWaitForProcessingOptions,
+  ): Promise<OpenAIFileWaitForProcessingResult>;
   createVectorStore(
     body: OpenAIVectorStoreCreateParams,
     options?: OpenAIVectorStoreCreateOptions,
@@ -203,6 +216,12 @@ export function createOpenAIAdapter(
 
     async retrieveFile(fileId, options) {
       return executeOpenAIRequest(() => client.files.retrieve(fileId, options));
+    },
+
+    async waitForFileProcessing(fileId, options) {
+      return executeOpenAIRequest(() =>
+        client.files.waitForProcessing(fileId, options),
+      );
     },
 
     async createVectorStore(body, options) {
