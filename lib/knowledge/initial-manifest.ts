@@ -11,7 +11,12 @@ import {
   type KnowledgeDocumentCatalogDocument,
   type KnowledgeDocumentCatalogStore,
 } from "@/lib/supabase/knowledge-document-store";
-import type { OpenAIClient } from "@/lib/openai/client";
+import type {
+  OpenAIAdapter,
+  OpenAIFileRetrieveResult,
+  OpenAIVectorStoreFileRetrieveResult,
+  OpenAIVectorStoreSearchResult,
+} from "@/lib/openai/adapter";
 
 export const INITIAL_CATALOG_MANIFEST_VERSION = 1;
 
@@ -105,24 +110,14 @@ type InitialManifestSupabaseClient = {
   storage: InitialManifestSupabaseStorageClient;
 };
 
-type InitialManifestOpenAIFile = Awaited<
-  ReturnType<OpenAIClient["files"]["retrieve"]>
+type InitialManifestOpenAIFile = OpenAIFileRetrieveResult;
+type InitialManifestOpenAIVectorStoreFile = OpenAIVectorStoreFileRetrieveResult;
+type InitialManifestOpenAIVectorStoreSearchResult =
+  OpenAIVectorStoreSearchResult;
+type InitialManifestOpenAIClient = Pick<
+  OpenAIAdapter,
+  "retrieveFile" | "retrieveVectorStoreFile" | "searchVectorStore"
 >;
-
-type InitialManifestOpenAIVectorStoreFile = Awaited<
-  ReturnType<OpenAIClient["vectorStores"]["files"]["retrieve"]>
->;
-
-type InitialManifestOpenAIVectorStoreSearchResult = Awaited<
-  ReturnType<OpenAIClient["vectorStores"]["search"]>
->;
-
-type InitialManifestOpenAIClient = {
-  files: Pick<OpenAIClient["files"], "retrieve">;
-  vectorStores: Pick<OpenAIClient["vectorStores"], "search"> & {
-    files: Pick<OpenAIClient["vectorStores"]["files"], "retrieve">;
-  };
-};
 
 type InitialCatalogManifestVerifierDeps = {
   catalogStore?: KnowledgeDocumentCatalogStore;
@@ -416,18 +411,16 @@ async function verifyDocument(
     }
   }
 
-  const openAIFile = await deps.openAI.files.retrieve(document.openaiFileId);
+  const openAIFile = await deps.openAI.retrieveFile(document.openaiFileId);
   failures.push(...compareOpenAIFile(document, openAIFile));
 
-  const vectorStoreFile = await deps.openAI.vectorStores.files.retrieve(
+  const vectorStoreFile = await deps.openAI.retrieveVectorStoreFile(
+    document.vectorStoreId,
     document.openaiFileId,
-    {
-      vector_store_id: document.vectorStoreId,
-    },
   );
   failures.push(...compareVectorStoreFile(document, vectorStoreFile));
 
-  const searchResult = await deps.openAI.vectorStores.search(
+  const searchResult = await deps.openAI.searchVectorStore(
     document.vectorStoreId,
     {
       query: document.searchProbe,
@@ -457,12 +450,12 @@ export async function verifyInitialCatalogManifest(
       ? Promise.resolve(null)
       : import("@/lib/supabase/knowledge-document-store"),
     deps.supabase ? Promise.resolve(null) : import("@/lib/supabase/client"),
-    deps.openAI ? Promise.resolve(null) : import("@/lib/openai/client"),
+    deps.openAI ? Promise.resolve(null) : import("@/lib/openai/adapter"),
   ]);
   const requiredDeps = {
     catalogStore:
       deps.catalogStore ?? catalogModule!.knowledgeDocumentCatalogStore,
-    openAI: deps.openAI ?? openAIModule!.openAIClient,
+    openAI: deps.openAI ?? openAIModule!.openAIAdapter,
     supabase: deps.supabase ?? supabaseModule!.supabaseAdmin,
   } satisfies Required<InitialCatalogManifestVerifierDeps>;
 

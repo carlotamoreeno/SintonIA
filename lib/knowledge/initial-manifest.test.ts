@@ -77,42 +77,36 @@ function createDeps() {
       findFirstDocumentBySha256: vi.fn(),
     },
     openAI: {
-      files: {
-        retrieve: vi.fn().mockResolvedValue({
-          filename: document.originalFilename,
-          id: document.openaiFileId,
-          purpose: document.openaiFilePurpose,
-          status: document.openaiFileStatus,
-        }),
-      },
-      vectorStores: {
-        files: {
-          retrieve: vi.fn().mockResolvedValue({
-            id: document.openaiFileId,
-            last_error: document.lastErrorExpected,
-            status: document.vectorStoreFileStatus,
-            vector_store_id: document.vectorStoreId,
-          }),
-        },
-        search: vi.fn().mockResolvedValue({
-          data: [
-            {
-              attributes: {
-                dataset_version: document.datasetVersion,
-                doc_id: document.docId,
-                document_version: document.documentVersion,
-              },
-              content: [
-                {
-                  text: "Documento botánico de prueba para T-21",
-                  type: "text",
-                },
-              ],
-              file_id: document.openaiFileId,
+      retrieveFile: vi.fn().mockResolvedValue({
+        filename: document.originalFilename,
+        id: document.openaiFileId,
+        purpose: document.openaiFilePurpose,
+        status: document.openaiFileStatus,
+      }),
+      retrieveVectorStoreFile: vi.fn().mockResolvedValue({
+        id: document.openaiFileId,
+        last_error: document.lastErrorExpected,
+        status: document.vectorStoreFileStatus,
+        vector_store_id: document.vectorStoreId,
+      }),
+      searchVectorStore: vi.fn().mockResolvedValue({
+        data: [
+          {
+            attributes: {
+              dataset_version: document.datasetVersion,
+              doc_id: document.docId,
+              document_version: document.documentVersion,
             },
-          ],
-        }),
-      },
+            content: [
+              {
+                text: "Documento botánico de prueba para T-21",
+                type: "text",
+              },
+            ],
+            file_id: document.openaiFileId,
+          },
+        ],
+      }),
     },
     supabase: {
       storage: {
@@ -225,7 +219,7 @@ describe("verifyInitialCatalogManifest", () => {
 
   it("fails when the OpenAI file is not processed", async () => {
     const deps = createDeps();
-    deps.openAI.files.retrieve.mockResolvedValue({
+    deps.openAI.retrieveFile.mockResolvedValue({
       filename: "botanica.pdf",
       id: "file_test_123",
       purpose: "assistants",
@@ -242,7 +236,7 @@ describe("verifyInitialCatalogManifest", () => {
 
   it("fails when the vector store file is not completed", async () => {
     const deps = createDeps();
-    deps.openAI.vectorStores.files.retrieve.mockResolvedValue({
+    deps.openAI.retrieveVectorStoreFile.mockResolvedValue({
       id: "file_test_123",
       last_error: {
         code: "server_error",
@@ -262,7 +256,7 @@ describe("verifyInitialCatalogManifest", () => {
 
   it("fails when vector store search returns no matching hit", async () => {
     const deps = createDeps();
-    deps.openAI.vectorStores.search.mockResolvedValue({
+    deps.openAI.searchVectorStore.mockResolvedValue({
       data: [],
     });
 
