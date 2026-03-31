@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UNAUTHENTICATED_API_MESSAGE } from "@/lib/auth/access";
 import {
   INVALID_CHAT_REQUEST_MESSAGE,
@@ -9,6 +9,7 @@ import {
 
 const getOptionalAppSessionMock = vi.fn();
 const createChatResponseMock = vi.fn();
+const consumeChatRateLimitMock = vi.fn();
 
 vi.mock("@/lib/auth/app-session", () => ({
   getOptionalAppSession: getOptionalAppSessionMock,
@@ -26,6 +27,12 @@ vi.mock("@/lib/chat/create-chat-response", () => ({
   createChatResponse: createChatResponseMock,
 }));
 
+vi.mock("@/lib/supabase/chat-rate-limit-store", () => ({
+  chatRateLimitStore: {
+    consumeRequest: consumeChatRateLimitMock,
+  },
+}));
+
 function createJsonRequest(body: unknown) {
   return new Request("http://localhost:3000/api/chat", {
     body: JSON.stringify(body),
@@ -35,6 +42,17 @@ function createJsonRequest(body: unknown) {
     method: "POST",
   });
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.resetModules();
+  consumeChatRateLimitMock.mockResolvedValue({
+    allowed: true,
+    remaining: 19,
+    requestCount: 1,
+    windowStart: "2026-03-31T14:20:00.000Z",
+  });
+});
 
 describe("POST /api/chat", () => {
   it("returns 401 when there is no authenticated session", async () => {
@@ -48,6 +66,7 @@ describe("POST /api/chat", () => {
       message: UNAUTHENTICATED_API_MESSAGE,
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the message is empty after trimming", async () => {
@@ -76,6 +95,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the message exceeds the contract limit", async () => {
@@ -108,6 +128,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the conversationId is blank after trimming", async () => {
@@ -141,6 +162,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
   it("delegates valid payloads to the chat service with trimmed values", async () => {
@@ -175,6 +197,10 @@ describe("POST /api/chat", () => {
     expect(createChatResponseMock).toHaveBeenCalledWith({
       conversationId: "conversation-1",
       message: "Consulta valida",
+      userId: "user-1",
+    });
+    expect(consumeChatRateLimitMock).toHaveBeenCalledWith({
+      limit: 20,
       userId: "user-1",
     });
     expect(response.status).toBe(200);
@@ -224,6 +250,36 @@ describe("POST /api/chat", () => {
         conversationId: ["Invalid conversationId."],
       },
     });
+  });
+
+  it("returns 429 before inference when the local fixed-window limiter is exhausted", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+    consumeChatRateLimitMock.mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      requestCount: 20,
+      windowStart: "2026-03-31T14:20:00.000Z",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(createJsonRequest({ message: "Hola" }));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      message: RATE_LIMITED_CHAT_MESSAGE,
+    });
+    expect(createChatResponseMock).not.toHaveBeenCalled();
   });
 
   it("returns a temporary generic 502 envelope for runtime failures", async () => {

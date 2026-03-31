@@ -10,10 +10,12 @@ import {
   UPSTREAM_CHAT_ERROR_MESSAGE,
   UPSTREAM_CHAT_TIMEOUT_MESSAGE,
 } from "@/lib/chat/chat-route";
+import { chatRuntimeEnv } from "@/lib/chat/env";
 import {
   createChatResponse,
   CreateChatResponseError,
 } from "@/lib/chat/create-chat-response";
+import { chatRateLimitStore } from "@/lib/supabase/chat-rate-limit-store";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,29 @@ export async function POST(request: Request) {
       {
         status: 400,
       },
+    );
+  }
+
+  try {
+    const rateLimit = await chatRateLimitStore.consumeRequest({
+      limit: chatRuntimeEnv.rateLimitPerMinute,
+      userId: appSession.persistedIdentity.user.id,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          message: RATE_LIMITED_CHAT_MESSAGE,
+        },
+        { status: 429 },
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      {
+        message: UPSTREAM_CHAT_ERROR_MESSAGE,
+      },
+      { status: 502 },
     );
   }
 
