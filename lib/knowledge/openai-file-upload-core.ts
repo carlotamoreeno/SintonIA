@@ -45,7 +45,7 @@ type UploadKnowledgeDocumentStorageClient = {
 
 type UploadKnowledgeDocumentToOpenAIClient = Pick<
   OpenAIAdapter,
-  "createFile" | "waitForFileProcessing"
+  "createFile" | "deleteFile" | "waitForFileProcessing"
 >;
 
 export type UploadKnowledgeDocumentToOpenAIInput = z.input<
@@ -120,6 +120,14 @@ type DownloadedKnowledgeDocument = {
   sizeBytes: number;
 };
 
+type SuccessfulUploadCatalogRecoveryResult = {
+  message: string;
+  recoveredCatalogOpenAIFileId: string | null;
+  recoveryError: unknown | null;
+  remoteFileDeleteError: unknown | null;
+  remoteFileDeleted: boolean;
+};
+
 function createPreconditionError(
   code: "document_already_uploaded" | "document_not_found" | "document_retired",
   message: string,
@@ -142,6 +150,14 @@ function getErrorMessage(error: unknown) {
   }
 
   return "Knowledge document upload failed.";
+}
+
+function getDetailedErrorMessage(error: unknown) {
+  if (error instanceof OpenAIAdapterError) {
+    return formatOpenAIAdapterErrorMessage(error);
+  }
+
+  return getErrorMessage(error);
 }
 
 function formatOpenAIAdapterErrorMessage(error: OpenAIAdapterError) {
@@ -194,8 +210,67 @@ function createCatalogRecordFailureError(
       uploadError,
     },
     code: "catalog_record_failed",
-    message: `${uploadError.message} | Failed to record the upload result in knowledge_documents: ${getErrorMessage(error)}`,
+    message: `${uploadError.message} | Failed to record the upload result in knowledge_documents: ${getDetailedErrorMessage(error)}`,
     openAIFileId,
+  });
+}
+
+function buildSuccessfulUploadCatalogFailureMessage(input: {
+  catalogError: unknown;
+  openAIFileId: string | null;
+  recoveryError: unknown | null;
+  remoteFileDeleteError: unknown | null;
+  remoteFileDeleted: boolean;
+}) {
+  const baseMessage = input.openAIFileId
+    ? `Processed OpenAI file ${input.openAIFileId} could not be recorded as uploaded in knowledge_documents: ${getDetailedErrorMessage(input.catalogError)}.`
+    : `Processed OpenAI upload could not be recorded as uploaded in knowledge_documents: ${getDetailedErrorMessage(input.catalogError)}.`;
+
+  if (input.remoteFileDeleted) {
+    if (input.recoveryError) {
+      return `${baseMessage} Remote OpenAI file deleted, but recording the failed recovery state also failed: ${getDetailedErrorMessage(input.recoveryError)}. Manual catalog reconciliation is required.`;
+    }
+
+    return `${baseMessage} Remote OpenAI file deleted and catalog row marked as failed for retry.`;
+  }
+
+  const cleanupMessage = input.remoteFileDeleteError
+    ? ` Remote cleanup failed: ${getDetailedErrorMessage(input.remoteFileDeleteError)}.`
+    : input.openAIFileId
+      ? " Remote cleanup was not attempted."
+      : "";
+
+  if (input.recoveryError) {
+    return `${baseMessage}${cleanupMessage} Recording the failed recovery state also failed: ${getDetailedErrorMessage(input.recoveryError)}. Manual cleanup and catalog reconciliation are required.`;
+  }
+
+  if (input.openAIFileId) {
+    return `${baseMessage}${cleanupMessage} Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.`;
+  }
+
+  return `${baseMessage} Catalog row marked as failed without an openai_file_id. Manual investigation may still be required.`;
+}
+
+function createSuccessfulUploadCatalogRecordFailureError(input: {
+  catalogError: unknown;
+  message: string;
+  openAIFileId: string | null;
+  recoveredCatalogOpenAIFileId: string | null;
+  recoveryError: unknown | null;
+  remoteFileDeleteError: unknown | null;
+  remoteFileDeleted: boolean;
+}) {
+  return new UploadKnowledgeDocumentToOpenAIError({
+    cause: {
+      catalogError: input.catalogError,
+      recoveredCatalogOpenAIFileId: input.recoveredCatalogOpenAIFileId,
+      recoveryError: input.recoveryError,
+      remoteFileDeleteError: input.remoteFileDeleteError,
+      remoteFileDeleted: input.remoteFileDeleted,
+    },
+    code: "catalog_record_failed",
+    message: input.message,
+    openAIFileId: input.openAIFileId,
   });
 }
 
@@ -289,6 +364,78 @@ async function recordFailedUpload(
   }
 }
 
+async function deleteUploadedOpenAIFile(
+  openAI: UploadKnowledgeDocumentToOpenAIDeps["openAI"],
+  openAIFileId: string,
+) {
+  const deletedFile = await openAI.deleteFile(openAIFileId);
+
+  if (!deletedFile.deleted) {
+    throw new Error(
+      `OpenAI file ${openAIFileId} deletion did not confirm deleted=true.`,
+    );
+  }
+}
+
+async function recoverFromSuccessfulUploadCatalogFailure(input: {
+  catalogError: unknown;
+  catalogStore: UploadKnowledgeDocumentToOpenAIDeps["catalogStore"];
+  document: KnowledgeDocumentCatalogDocument;
+  openAI: UploadKnowledgeDocumentToOpenAIDeps["openAI"];
+  openAIFileId: string | null;
+}): Promise<SuccessfulUploadCatalogRecoveryResult> {
+  let remoteFileDeleted = false;
+  let remoteFileDeleteError: unknown | null = null;
+  let recoveredCatalogOpenAIFileId = input.openAIFileId;
+
+  if (input.openAIFileId) {
+    try {
+      await deleteUploadedOpenAIFile(input.openAI, input.openAIFileId);
+      remoteFileDeleted = true;
+      recoveredCatalogOpenAIFileId = null;
+    } catch (error) {
+      remoteFileDeleteError = error;
+    }
+  }
+
+  const recoveryLastError = buildSuccessfulUploadCatalogFailureMessage({
+    catalogError: input.catalogError,
+    openAIFileId: input.openAIFileId,
+    recoveryError: null,
+    remoteFileDeleteError,
+    remoteFileDeleted,
+  });
+
+  let recoveryError: unknown | null = null;
+
+  try {
+    await input.catalogStore.recordOpenAIUploadResult({
+      datasetVersion: input.document.datasetVersion,
+      docId: input.document.docId,
+      documentVersion: input.document.documentVersion,
+      lastError: recoveryLastError,
+      openAIFileId: recoveredCatalogOpenAIFileId,
+      status: "failed",
+    });
+  } catch (error) {
+    recoveryError = error;
+  }
+
+  return {
+    message: buildSuccessfulUploadCatalogFailureMessage({
+      catalogError: input.catalogError,
+      openAIFileId: input.openAIFileId,
+      recoveryError,
+      remoteFileDeleteError,
+      remoteFileDeleted,
+    }),
+    recoveredCatalogOpenAIFileId,
+    recoveryError,
+    remoteFileDeleteError,
+    remoteFileDeleted,
+  };
+}
+
 export function createUploadKnowledgeDocumentToOpenAI(
   deps: UploadKnowledgeDocumentToOpenAIDeps,
 ) {
@@ -339,14 +486,36 @@ export function createUploadKnowledgeDocumentToOpenAI(
       throw uploadError;
     }
 
-    const updatedDocument = await deps.catalogStore.recordOpenAIUploadResult({
-      datasetVersion: document.datasetVersion,
-      docId: document.docId,
-      documentVersion: document.documentVersion,
-      lastError: null,
-      openAIFileId,
-      status: "uploaded",
-    });
+    let updatedDocument: KnowledgeDocumentCatalogDocument;
+
+    try {
+      updatedDocument = await deps.catalogStore.recordOpenAIUploadResult({
+        datasetVersion: document.datasetVersion,
+        docId: document.docId,
+        documentVersion: document.documentVersion,
+        lastError: null,
+        openAIFileId,
+        status: "uploaded",
+      });
+    } catch (catalogError) {
+      const recovery = await recoverFromSuccessfulUploadCatalogFailure({
+        catalogError,
+        catalogStore: deps.catalogStore,
+        document,
+        openAI: deps.openAI,
+        openAIFileId,
+      });
+
+      throw createSuccessfulUploadCatalogRecordFailureError({
+        catalogError,
+        message: recovery.message,
+        openAIFileId,
+        recoveredCatalogOpenAIFileId: recovery.recoveredCatalogOpenAIFileId,
+        recoveryError: recovery.recoveryError,
+        remoteFileDeleteError: recovery.remoteFileDeleteError,
+        remoteFileDeleted: recovery.remoteFileDeleted,
+      });
+    }
 
     return {
       document: {

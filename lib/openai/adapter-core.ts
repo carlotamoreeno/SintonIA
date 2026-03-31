@@ -28,6 +28,10 @@ export type OpenAIFileRetrieveOptions = Parameters<
 export type OpenAIFileRetrieveResult = Awaited<
   ReturnType<OpenAI["files"]["retrieve"]>
 >;
+export type OpenAIFileDeleteOptions = Parameters<OpenAI["files"]["delete"]>[1];
+export type OpenAIFileDeleteResult = Awaited<
+  ReturnType<OpenAI["files"]["delete"]>
+>;
 
 export type OpenAIVectorStoreCreateParams = Parameters<
   OpenAI["vectorStores"]["create"]
@@ -72,7 +76,7 @@ type OpenAIVectorStoreFilesClient = Pick<
 export type OpenAIAdapterClient = {
   files: Pick<
     OpenAIClient["files"],
-    "create" | "retrieve" | "waitForProcessing"
+    "create" | "delete" | "retrieve" | "waitForProcessing"
   >;
   responses: Pick<OpenAIClient["responses"], "create">;
   vectorStores: Pick<OpenAIClient["vectorStores"], "create" | "search"> & {
@@ -93,6 +97,10 @@ export type OpenAIAdapter = {
     fileId: string,
     options?: OpenAIFileRetrieveOptions,
   ): Promise<OpenAIFileRetrieveResult>;
+  deleteFile(
+    fileId: string,
+    options?: OpenAIFileDeleteOptions,
+  ): Promise<OpenAIFileDeleteResult>;
   waitForFileProcessing(
     fileId: string,
     options?: OpenAIFileWaitForProcessingOptions,
@@ -216,6 +224,10 @@ export function createOpenAIAdapter(
 
     async retrieveFile(fileId, options) {
       return executeOpenAIRequest(() => client.files.retrieve(fileId, options));
+    },
+
+    async deleteFile(fileId, options) {
+      return executeOpenAIRequest(() => client.files.delete(fileId, options));
     },
 
     async waitForFileProcessing(fileId, options) {

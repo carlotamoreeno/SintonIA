@@ -46,6 +46,11 @@ function createDeps() {
     purpose: "assistants",
     status: "uploaded",
   });
+  const deleteFile = vi.fn().mockResolvedValue({
+    deleted: true,
+    id: "file_uploaded_123",
+    object: "file",
+  });
   const waitForFileProcessing = vi.fn().mockResolvedValue({
     _request_id: "req_upload_123",
     bytes: 131989,
@@ -63,6 +68,7 @@ function createDeps() {
     },
     openAI: {
       createFile,
+      deleteFile,
       waitForFileProcessing,
     },
     supabase: {
@@ -72,6 +78,7 @@ function createDeps() {
     },
     spies: {
       createFile,
+      deleteFile,
       download,
       findDocumentByIdentity,
       recordOpenAIUploadResult,
@@ -120,6 +127,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
     expect(deps.spies.waitForFileProcessing).toHaveBeenCalledWith(
       "file_uploaded_123",
     );
+    expect(deps.spies.deleteFile).not.toHaveBeenCalled();
     expect(deps.spies.recordOpenAIUploadResult).toHaveBeenCalledWith({
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
@@ -151,6 +159,148 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
         bucket: KNOWLEDGE_DOCUMENTS_STORAGE_BUCKET,
         sizeBytes: 23,
       },
+    });
+  });
+
+  it("deletes the remote file and records a retryable failed state when the uploaded result cannot be persisted", async () => {
+    const deps = createDeps();
+    deps.spies.recordOpenAIUploadResult
+      .mockRejectedValueOnce(new Error("catalog-write-failed"))
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          lastError:
+            "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote OpenAI file deleted and catalog row marked as failed for retry.",
+          openAIFileId: null,
+          status: "failed",
+        }),
+      );
+    const uploadKnowledgeDocumentToOpenAI =
+      createUploadKnowledgeDocumentToOpenAI(deps);
+
+    const error = await uploadKnowledgeDocumentToOpenAI({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    }).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "catalog_record_failed",
+      message:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote OpenAI file deleted and catalog row marked as failed for retry.",
+      openAIFileId: "file_uploaded_123",
+    });
+    expect(deps.spies.deleteFile).toHaveBeenCalledWith("file_uploaded_123");
+    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(1, {
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+      lastError: null,
+      openAIFileId: "file_uploaded_123",
+      status: "uploaded",
+    });
+    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(2, {
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+      lastError:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote OpenAI file deleted and catalog row marked as failed for retry.",
+      openAIFileId: null,
+      status: "failed",
+    });
+  });
+
+  it("records a failed state with the original openai_file_id when remote cleanup fails", async () => {
+    const deps = createDeps();
+    deps.spies.deleteFile.mockRejectedValue(new Error("delete-boom"));
+    deps.spies.recordOpenAIUploadResult
+      .mockRejectedValueOnce(new Error("catalog-write-failed"))
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          lastError:
+            "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.",
+          openAIFileId: "file_uploaded_123",
+          status: "failed",
+        }),
+      );
+    const uploadKnowledgeDocumentToOpenAI =
+      createUploadKnowledgeDocumentToOpenAI(deps);
+
+    const error = await uploadKnowledgeDocumentToOpenAI({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    }).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "catalog_record_failed",
+      message:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.",
+      openAIFileId: "file_uploaded_123",
+    });
+    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(2, {
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+      lastError:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.",
+      openAIFileId: "file_uploaded_123",
+      status: "failed",
+    });
+  });
+
+  it("keeps the error structured when recovery persistence fails after deleting the remote file", async () => {
+    const deps = createDeps();
+    deps.spies.recordOpenAIUploadResult
+      .mockRejectedValueOnce(new Error("catalog-write-failed"))
+      .mockRejectedValueOnce(new Error("recovery-boom"));
+    const uploadKnowledgeDocumentToOpenAI =
+      createUploadKnowledgeDocumentToOpenAI(deps);
+
+    const error = await uploadKnowledgeDocumentToOpenAI({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    }).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "catalog_record_failed",
+      message:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote OpenAI file deleted, but recording the failed recovery state also failed: recovery-boom. Manual catalog reconciliation is required.",
+      openAIFileId: "file_uploaded_123",
+    });
+    expect(error.cause).toMatchObject({
+      recoveredCatalogOpenAIFileId: null,
+      recoveryError: expect.any(Error),
+      remoteFileDeleted: true,
+    });
+  });
+
+  it("keeps the error structured when both remote cleanup and recovery persistence fail", async () => {
+    const deps = createDeps();
+    deps.spies.deleteFile.mockRejectedValue(new Error("delete-boom"));
+    deps.spies.recordOpenAIUploadResult
+      .mockRejectedValueOnce(new Error("catalog-write-failed"))
+      .mockRejectedValueOnce(new Error("recovery-boom"));
+    const uploadKnowledgeDocumentToOpenAI =
+      createUploadKnowledgeDocumentToOpenAI(deps);
+
+    const error = await uploadKnowledgeDocumentToOpenAI({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    }).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "catalog_record_failed",
+      message:
+        "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Recording the failed recovery state also failed: recovery-boom. Manual cleanup and catalog reconciliation are required.",
+      openAIFileId: "file_uploaded_123",
+    });
+    expect(error.cause).toMatchObject({
+      recoveredCatalogOpenAIFileId: "file_uploaded_123",
+      recoveryError: expect.any(Error),
+      remoteFileDeleteError: expect.any(Error),
+      remoteFileDeleted: false,
     });
   });
 

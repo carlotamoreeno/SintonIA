@@ -5,6 +5,7 @@ vi.mock("./client", () => ({
   openAIClient: {
     files: {
       create: vi.fn(),
+      delete: vi.fn(),
       retrieve: vi.fn(),
       waitForProcessing: vi.fn(),
     },
@@ -33,6 +34,7 @@ function createMockClient() {
   return {
     files: {
       create: vi.fn(),
+      delete: vi.fn(),
       retrieve: vi.fn(),
       waitForProcessing: vi.fn(),
     },
@@ -120,6 +122,23 @@ describe("createOpenAIAdapter", () => {
 
     expect(client.files.retrieve).toHaveBeenCalledWith("file_123", undefined);
     expect(result).toBe(expectedFile);
+  });
+
+  it("delegates file deletion without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedDeletion = {
+      _request_id: "req_file_delete_123",
+      deleted: true,
+      id: "file_123",
+      object: "file",
+    };
+    client.files.delete.mockResolvedValue(expectedDeletion as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.deleteFile("file_123");
+
+    expect(client.files.delete).toHaveBeenCalledWith("file_123", undefined);
+    expect(result).toBe(expectedDeletion);
   });
 
   it("delegates file processing polling without reshaping the SDK result", async () => {
