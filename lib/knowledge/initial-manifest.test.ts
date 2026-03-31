@@ -74,6 +74,7 @@ function createDeps() {
         createdAt: "2026-03-30T15:37:24.868Z",
         updatedAt: "2026-03-30T15:37:24.868Z",
       }),
+      findDocumentsByDatasetVersion: vi.fn().mockResolvedValue([]),
       findFirstDocumentBySha256: vi.fn(),
       recordIndexingState: vi.fn(),
     },

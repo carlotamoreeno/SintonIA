@@ -88,6 +88,10 @@ export type KnowledgeDocumentCatalogStore = {
     docId: string;
     documentVersion: number;
   }): Promise<KnowledgeDocumentCatalogDocument | null>;
+  findDocumentsByDatasetVersion(input: {
+    datasetVersion: string;
+    limit: number;
+  }): Promise<KnowledgeDocumentCatalogDocument[]>;
   recordIndexingState(input: {
     datasetVersion: string;
     docId: string;
@@ -190,6 +194,35 @@ export function createKnowledgeDocumentCatalogStore(
         .parse(data ?? [])[0];
 
       return row ? mapKnowledgeDocumentCatalogDocument(row) : null;
+    },
+
+    async findDocumentsByDatasetVersion(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .select(knowledgeDocumentCatalogDocumentSelect)
+        .eq("dataset_version", input.datasetVersion)
+        .order("created_at", {
+          ascending: true,
+        })
+        .order("doc_id", {
+          ascending: true,
+        })
+        .order("document_version", {
+          ascending: true,
+        })
+        .limit(input.limit)
+        .returns<KnowledgeDocumentCatalogDocumentRow[]>();
+
+      if (error) {
+        throw new Error(
+          `Failed to load knowledge documents by dataset version: ${error.message}`,
+        );
+      }
+
+      return knowledgeDocumentCatalogDocumentRowSchema
+        .array()
+        .parse(data ?? [])
+        .map(mapKnowledgeDocumentCatalogDocument);
     },
 
     async recordIndexingState(input) {

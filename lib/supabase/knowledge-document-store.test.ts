@@ -233,6 +233,135 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     );
   });
 
+  it("lists documents by dataset version with a stable order and limit", async () => {
+    const returnsMock = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "doc-row-3",
+          doc_id: "orchid-care",
+          title: "Guia de orquideas",
+          original_filename: "orchid-guide.pdf",
+          document_version: 1,
+          status: "ready",
+          canonical_path:
+            "datasets/mvp-2026-03/orchid-care/v1/hash--orchid-guide.pdf",
+          mime_type: "application/pdf",
+          sha256: "e".repeat(64),
+          dataset_version: "mvp-2026-03",
+          openai_file_id: "file_456",
+          vector_store_id: "vs_123",
+          custom_metadata_json: {},
+          last_indexed_at: "2026-03-31T10:00:00.000Z",
+          last_error: null,
+          created_at: "2026-03-30T10:00:00.000Z",
+          updated_at: "2026-03-31T10:00:00.000Z",
+        },
+      ],
+      error: null,
+    });
+    const limitMock = vi.fn().mockReturnValue({
+      returns: returnsMock,
+    });
+    const documentVersionOrderMock = vi.fn().mockReturnValue({
+      limit: limitMock,
+    });
+    const docIdOrderMock = vi.fn().mockReturnValue({
+      order: documentVersionOrderMock,
+    });
+    const createdAtOrderMock = vi.fn().mockReturnValue({
+      order: docIdOrderMock,
+    });
+    const datasetEqMock = vi.fn().mockReturnValue({
+      order: createdAtOrderMock,
+    });
+    const selectMock = vi.fn().mockReturnValue({
+      eq: datasetEqMock,
+    });
+    const fromMock = vi.fn().mockReturnValue({
+      select: selectMock,
+    });
+    const store = createKnowledgeDocumentCatalogStore({
+      from: fromMock,
+    } as never);
+
+    const result = await store.findDocumentsByDatasetVersion({
+      datasetVersion: "mvp-2026-03",
+      limit: 25,
+    });
+
+    expect(fromMock).toHaveBeenCalledWith("knowledge_documents");
+    expect(datasetEqMock).toHaveBeenCalledWith(
+      "dataset_version",
+      "mvp-2026-03",
+    );
+    expect(createdAtOrderMock).toHaveBeenCalledWith("created_at", {
+      ascending: true,
+    });
+    expect(docIdOrderMock).toHaveBeenCalledWith("doc_id", {
+      ascending: true,
+    });
+    expect(documentVersionOrderMock).toHaveBeenCalledWith("document_version", {
+      ascending: true,
+    });
+    expect(limitMock).toHaveBeenCalledWith(25);
+    expect(result).toEqual([
+      {
+        id: "doc-row-3",
+        docId: "orchid-care",
+        title: "Guia de orquideas",
+        originalFilename: "orchid-guide.pdf",
+        documentVersion: 1,
+        status: "ready",
+        canonicalPath:
+          "datasets/mvp-2026-03/orchid-care/v1/hash--orchid-guide.pdf",
+        mimeType: "application/pdf",
+        sha256: "e".repeat(64),
+        datasetVersion: "mvp-2026-03",
+        openAIFileId: "file_456",
+        vectorStoreId: "vs_123",
+        customMetadata: {},
+        lastIndexedAt: "2026-03-31T10:00:00.000Z",
+        lastError: null,
+        createdAt: "2026-03-30T10:00:00.000Z",
+        updatedAt: "2026-03-31T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("throws when listing documents by dataset version fails", async () => {
+    const store = createKnowledgeDocumentCatalogStore({
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({
+              order: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    returns: vi.fn().mockResolvedValue({
+                      data: null,
+                      error: {
+                        message: "dataset-boom",
+                      },
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as never);
+
+    await expect(
+      store.findDocumentsByDatasetVersion({
+        datasetVersion: "mvp-2026-03",
+        limit: 25,
+      }),
+    ).rejects.toThrow(
+      "Failed to load knowledge documents by dataset version: dataset-boom",
+    );
+  });
+
   it("records a pending indexing state and clears all operational fields", async () => {
     const singleMock = vi.fn().mockResolvedValue({
       data: {

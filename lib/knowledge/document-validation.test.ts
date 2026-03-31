@@ -8,6 +8,7 @@ import {
 function createMockStore() {
   return {
     findDocumentByIdentity: vi.fn(),
+    findDocumentsByDatasetVersion: vi.fn().mockResolvedValue([]),
     findFirstDocumentBySha256: vi.fn().mockResolvedValue(null),
     recordIndexingState: vi.fn(),
   };
