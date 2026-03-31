@@ -247,4 +247,36 @@ describe("POST /api/chat", () => {
       message: UPSTREAM_CHAT_ERROR_MESSAGE,
     });
   });
+
+  it("keeps vector store preflight failures behind the temporary generic 502 envelope", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+    const { CreateChatResponseError } =
+      await import("@/lib/chat/create-chat-response");
+    createChatResponseMock.mockRejectedValueOnce(
+      new CreateChatResponseError({
+        code: "upstream_request_failed",
+        message:
+          "Active vector store vs_active_123 does not contain any completed files for chat retrieval.",
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(createJsonRequest({ message: "Hola" }));
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: UPSTREAM_CHAT_ERROR_MESSAGE,
+    });
+  });
 });

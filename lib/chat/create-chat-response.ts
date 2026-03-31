@@ -8,6 +8,7 @@ import { createCreateChatResponse } from "./create-chat-response-core";
 export * from "./create-chat-response-core";
 
 export const createChatResponse = createCreateChatResponse({
+  activeVectorStoreId: openAIServerEnv.activeVectorStoreId,
   conversationStore,
   model: openAIServerEnv.model,
   openAI: openAIAdapter,

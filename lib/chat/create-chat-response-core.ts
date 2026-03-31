@@ -11,7 +11,14 @@ const createChatResponseInputSchema = chatRequestBodySchema.extend({
   userId: z.string().trim().min(1),
 });
 
-type CreateChatResponseClient = Pick<OpenAIAdapter, "createResponse">;
+type CreateChatResponseClient = Pick<
+  OpenAIAdapter,
+  "createResponse" | "retrieveVectorStore"
+>;
+
+type ActiveVectorStore = Awaited<
+  ReturnType<CreateChatResponseClient["retrieveVectorStore"]>
+>;
 
 export type CreateChatResponseInput = z.input<
   typeof createChatResponseInputSchema
@@ -48,6 +55,7 @@ export class CreateChatResponseError extends Error {
 }
 
 export type CreateChatResponseDeps = {
+  activeVectorStoreId: string;
   conversationStore: Pick<
     ConversationStore,
     | "createConversationWithFirstUserMessage"
@@ -109,6 +117,46 @@ function buildConversationInput(
     "",
     `USER: ${message}`,
   ].join("\n");
+}
+
+function isActiveVectorStoreReady(
+  vectorStore: Pick<ActiveVectorStore, "file_counts" | "status">,
+) {
+  return (
+    vectorStore.status === "completed" && vectorStore.file_counts.completed > 0
+  );
+}
+
+async function assertActiveVectorStoreReady(deps: CreateChatResponseDeps) {
+  let vectorStore: ActiveVectorStore;
+
+  try {
+    vectorStore = await deps.openAI.retrieveVectorStore(
+      deps.activeVectorStoreId,
+    );
+  } catch (error) {
+    throw new CreateChatResponseError({
+      cause: error,
+      code: "upstream_request_failed",
+      message: `Active vector store ${deps.activeVectorStoreId} could not be loaded for chat retrieval: ${getDetailedErrorMessage(error)}`,
+    });
+  }
+
+  if (isActiveVectorStoreReady(vectorStore)) {
+    return;
+  }
+
+  if (vectorStore.status !== "completed") {
+    throw new CreateChatResponseError({
+      code: "upstream_request_failed",
+      message: `Active vector store ${deps.activeVectorStoreId} is not ready for chat retrieval: status=${vectorStore.status}.`,
+    });
+  }
+
+  throw new CreateChatResponseError({
+    code: "upstream_request_failed",
+    message: `Active vector store ${deps.activeVectorStoreId} does not contain any completed files for chat retrieval.`,
+  });
 }
 
 function isNonStreamingResponse(
@@ -200,12 +248,25 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
     let response;
 
     try {
+      await assertActiveVectorStoreReady(deps);
+
       response = await deps.openAI.createResponse({
+        include: ["file_search_call.results"],
         input: buildConversationInput(history, parsedInput.message),
         model: deps.model,
         store: false,
+        tools: [
+          {
+            type: "file_search",
+            vector_store_ids: [deps.activeVectorStoreId],
+          },
+        ],
       });
     } catch (error) {
+      if (error instanceof CreateChatResponseError) {
+        throw error;
+      }
+
       throw new CreateChatResponseError({
         cause: error,
         code: "upstream_request_failed",
