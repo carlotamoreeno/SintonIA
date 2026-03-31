@@ -121,6 +121,8 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         dataset_version: "mvp-2026-03",
         doc_id: "botanica-mvp-v1-corpus-mvp",
         document_version: 1,
+        mime_type: "application/pdf",
+        title: "Corpus botánico de prueba",
       },
       file_id: "file_uploaded_123",
     });
@@ -161,6 +163,8 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
           dataset_version: "mvp-2026-03",
           doc_id: "botanica-mvp-v1-corpus-mvp",
           document_version: 1,
+          mime_type: "application/pdf",
+          title: "Corpus botánico de prueba",
         },
         fileId: "file_uploaded_123",
         id: "vs_123",
@@ -169,6 +173,68 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         requestId: "req_poll_123",
         status: "completed",
       },
+    });
+  });
+
+  it("propagates the canonical and scalar custom metadata to the vector store file attributes", async () => {
+    const deps = createDeps();
+    deps.spies.findDocumentByIdentity.mockResolvedValue(
+      createCatalogDocument({
+        customMetadata: {
+          AudienceLevel: "  principiantes  ",
+          "Cultivation Zone": 9,
+          internal: false,
+          nested: {
+            ignored: true,
+          },
+        },
+      }),
+    );
+    deps.spies.recordVectorStoreIndexResult
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          status: "attached",
+          vectorStoreId: "vs_123",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          lastIndexedAt: "2026-03-31T09:10:00.000Z",
+          status: "ready",
+          vectorStoreId: "vs_123",
+        }),
+      );
+    const attachKnowledgeDocumentToVectorStore =
+      createAttachKnowledgeDocumentToVectorStore(deps);
+
+    const result = await attachKnowledgeDocumentToVectorStore({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    });
+
+    expect(deps.spies.createVectorStoreFile).toHaveBeenCalledWith("vs_123", {
+      attributes: {
+        dataset_version: "mvp-2026-03",
+        doc_id: "botanica-mvp-v1-corpus-mvp",
+        document_version: 1,
+        mime_type: "application/pdf",
+        title: "Corpus botánico de prueba",
+        custom_audience_level: "principiantes",
+        custom_cultivation_zone: 9,
+        custom_internal: false,
+      },
+      file_id: "file_uploaded_123",
+    });
+    expect(result.vectorStore.attributes).toEqual({
+      dataset_version: "mvp-2026-03",
+      doc_id: "botanica-mvp-v1-corpus-mvp",
+      document_version: 1,
+      mime_type: "application/pdf",
+      title: "Corpus botánico de prueba",
+      custom_audience_level: "principiantes",
+      custom_cultivation_zone: 9,
+      custom_internal: false,
     });
   });
 

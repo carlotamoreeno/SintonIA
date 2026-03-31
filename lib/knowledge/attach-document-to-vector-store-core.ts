@@ -6,6 +6,7 @@ import {
   type OpenAIVectorStoreFilePollResult,
 } from "@/lib/openai/adapter-core";
 import { knowledgeDocumentMetadataSchema } from "./document-metadata";
+import { buildKnowledgeDocumentVectorStoreFileAttributes } from "./vector-store-file-attributes";
 import type {
   KnowledgeDocumentCatalogDocument,
   KnowledgeDocumentCatalogStore,
@@ -165,14 +166,6 @@ function getRequestId(value: unknown) {
   }
 
   return null;
-}
-
-function buildVectorStoreFileAttributes(document: AttachableKnowledgeDocument) {
-  return {
-    dataset_version: document.datasetVersion,
-    doc_id: document.docId,
-    document_version: document.documentVersion,
-  } as const;
 }
 
 function getVectorStoreFileId(
@@ -571,7 +564,8 @@ export function createAttachKnowledgeDocumentToVectorStore(
       document.datasetVersion,
       deps.registryStore,
     );
-    const vectorStoreAttributes = buildVectorStoreFileAttributes(document);
+    const vectorStoreAttributes =
+      buildKnowledgeDocumentVectorStoreFileAttributes(document);
     const attachAttemptedAt = getCurrentTimestamp();
 
     let createdVectorStoreFile: OpenAIVectorStoreFileCreateResult;
