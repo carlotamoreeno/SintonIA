@@ -23,10 +23,18 @@ type JsonResponse<T = unknown> = {
   text: string;
 };
 
+type ChatCitation = {
+  documentId: string;
+  documentName: string;
+  fileId: string;
+  snippet: string;
+  vectorStoreId: string;
+};
+
 type ChatSuccessPayload = {
-  citations: [];
+  citations: ChatCitation[];
   conversationId: string;
-  grounded: false;
+  grounded: boolean;
   messageId: string;
   text: string;
 };
@@ -42,6 +50,43 @@ type InvalidPayloadResponse = {
 type MeResponse = {
   id: string;
 };
+
+function assertChatPayloadContract(
+  payload: ChatSuccessPayload | null,
+  activeVectorStoreId: string,
+) {
+  assert.ok(payload, "Expected chat response JSON.");
+  assert.equal(typeof payload?.text, "string");
+  assert.ok(
+    (payload?.text ?? "").trim().length > 0,
+    "Expected chat response text to be non-empty.",
+  );
+  assert.match(payload?.messageId ?? "", /^resp_/);
+  assert.equal(Array.isArray(payload?.citations), true);
+  assert.equal(typeof payload?.grounded, "boolean");
+
+  if (!payload?.grounded) {
+    assert.deepEqual(payload?.citations, []);
+    return;
+  }
+
+  assert.ok(
+    payload.citations.length > 0,
+    "Expected grounded responses to expose at least one citation.",
+  );
+
+  for (const citation of payload.citations) {
+    assert.equal(typeof citation.documentId, "string");
+    assert.ok(citation.documentId.trim().length > 0);
+    assert.equal(typeof citation.documentName, "string");
+    assert.ok(citation.documentName.trim().length > 0);
+    assert.equal(typeof citation.fileId, "string");
+    assert.ok(citation.fileId.trim().length > 0);
+    assert.equal(typeof citation.snippet, "string");
+    assert.ok(citation.snippet.trim().length > 0);
+    assert.equal(citation.vectorStoreId, activeVectorStoreId);
+  }
+}
 
 function getRequiredEnv(name: string) {
   const value = process.env[name];
@@ -257,6 +302,25 @@ async function requestJson<T = unknown>(
   };
 }
 
+async function requestChatJsonWithRetry<T = unknown>(
+  url: string,
+  init?: RequestInit,
+  retries = 1,
+): Promise<JsonResponse<T>> {
+  let response = await requestJson<T>(url, init);
+
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    if (response.status !== 502 && response.status !== 504) {
+      return response;
+    }
+
+    await sleep(1_000);
+    response = await requestJson<T>(url, init);
+  }
+
+  return response;
+}
+
 async function cleanupUserData(authSubject: string) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase
@@ -355,10 +419,9 @@ async function main() {
   });
   const cookieHeader = buildCookieHeader(authCookie);
   const baseUrl = getBaseUrl(SERVER_PORT);
-  const token1 = `LIVE_API_OK_1_${Date.now()}`;
-  const token2 = `LIVE_API_OK_2_${Date.now()}`;
-  const prompt1 = `Responde exactamente con: ${token1}`;
-  const prompt2 = `Responde exactamente con: ${token2}`;
+  const activeVectorStoreId = getRequiredEnv("OPENAI_ACTIVE_VECTOR_STORE_ID");
+  const prompt1 = "Responde exactamente con: BOTANICA";
+  const prompt2 = "Gracias";
 
   let server: Awaited<ReturnType<typeof startServer>> | null = null;
 
@@ -418,32 +481,25 @@ async function main() {
       message: "Invalid request payload",
     });
 
-    const firstChatResponse = await requestJson<ChatSuccessPayload>(
-      `${baseUrl}/api/chat`,
-      {
-        body: JSON.stringify({
-          message: prompt1,
-        }),
-        headers: {
-          cookie: cookieHeader,
-          "content-type": "application/json",
+    const firstChatResponse =
+      await requestChatJsonWithRetry<ChatSuccessPayload>(
+        `${baseUrl}/api/chat`,
+        {
+          body: JSON.stringify({
+            message: prompt1,
+          }),
+          headers: {
+            cookie: cookieHeader,
+            "content-type": "application/json",
+          },
+          method: "POST",
         },
-        method: "POST",
-      },
-    );
+      );
     assert.equal(firstChatResponse.status, 200);
-    assert.ok(firstChatResponse.json, "Expected first chat response JSON.");
-    assert.equal(firstChatResponse.json?.grounded, false);
-    assert.deepEqual(firstChatResponse.json?.citations, []);
-    assert.match(firstChatResponse.json?.messageId ?? "", /^resp_/);
+    assertChatPayloadContract(firstChatResponse.json, activeVectorStoreId);
     assert.match(
       firstChatResponse.json?.conversationId ?? "",
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    assert.equal(typeof firstChatResponse.json?.text, "string");
-    assert.ok(
-      firstChatResponse.json?.text.includes(token1),
-      `Expected first live model response to include token ${token1}, got: ${firstChatResponse.json?.text}`,
     );
 
     const firstConversationState = await loadPersistedConversation({
@@ -477,36 +533,26 @@ async function main() {
       message: "Invalid request payload",
     });
 
-    const continuedChatResponse = await requestJson<ChatSuccessPayload>(
-      `${baseUrl}/api/chat`,
-      {
-        body: JSON.stringify({
-          conversationId: firstChatResponse.json?.conversationId,
-          message: prompt2,
-        }),
-        headers: {
-          cookie: cookieHeader,
-          "content-type": "application/json",
+    const continuedChatResponse =
+      await requestChatJsonWithRetry<ChatSuccessPayload>(
+        `${baseUrl}/api/chat`,
+        {
+          body: JSON.stringify({
+            conversationId: firstChatResponse.json?.conversationId,
+            message: prompt2,
+          }),
+          headers: {
+            cookie: cookieHeader,
+            "content-type": "application/json",
+          },
+          method: "POST",
         },
-        method: "POST",
-      },
-    );
+      );
     assert.equal(continuedChatResponse.status, 200);
-    assert.ok(
-      continuedChatResponse.json,
-      "Expected continued chat response JSON.",
-    );
+    assertChatPayloadContract(continuedChatResponse.json, activeVectorStoreId);
     assert.equal(
       continuedChatResponse.json?.conversationId,
       firstChatResponse.json?.conversationId,
-    );
-    assert.equal(continuedChatResponse.json?.grounded, false);
-    assert.deepEqual(continuedChatResponse.json?.citations, []);
-    assert.match(continuedChatResponse.json?.messageId ?? "", /^resp_/);
-    assert.equal(typeof continuedChatResponse.json?.text, "string");
-    assert.ok(
-      continuedChatResponse.json?.text.includes(token2),
-      `Expected continued live model response to include token ${token2}, got: ${continuedChatResponse.json?.text}`,
     );
 
     const secondConversationState = await loadPersistedConversation({

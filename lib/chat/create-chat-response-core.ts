@@ -4,6 +4,7 @@ import {
   type OpenAIAdapter,
   type OpenAIResponsesCreateResult,
 } from "@/lib/openai/adapter-core";
+import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
 
@@ -23,15 +24,45 @@ type PersistedConversationHistory = Exclude<
   Awaited<ReturnType<ConversationStore["findConversationHistoryForUserById"]>>,
   null
 >;
+type NonStreamingOpenAIResponse = Extract<
+  OpenAIResponsesCreateResult,
+  { output: Array<unknown> }
+>;
+type OpenAIResponseOutputItem = NonStreamingOpenAIResponse["output"][number];
+type OpenAIResponseOutputMessage = Extract<
+  OpenAIResponseOutputItem,
+  { role: "assistant"; type: "message" }
+>;
+type OpenAIResponseOutputText = Extract<
+  OpenAIResponseOutputMessage["content"][number],
+  { type: "output_text" }
+>;
+type OpenAIResponseOutputTextAnnotation =
+  OpenAIResponseOutputText["annotations"][number];
+type OpenAIResponseFileSearchToolCall = Extract<
+  OpenAIResponseOutputItem,
+  { type: "file_search_call" }
+>;
+type OpenAIResponseFileSearchResult = NonNullable<
+  OpenAIResponseFileSearchToolCall["results"]
+>[number];
 
 export type CreateChatResponseInput = z.input<
   typeof createChatResponseInputSchema
 >;
 
+export type ChatCitation = {
+  documentId: string;
+  documentName: string;
+  fileId: string;
+  snippet: string;
+  vectorStoreId: string;
+};
+
 export type CreateChatResponseResult = {
-  citations: [];
+  citations: ChatCitation[];
   conversationId: string;
-  grounded: false;
+  grounded: boolean;
   messageId: string;
   text: string;
 };
@@ -62,6 +93,7 @@ export class CreateChatResponseError extends Error {
 
 export type CreateChatResponseDeps = {
   activeVectorStoreId: string;
+  catalogStore: Pick<KnowledgeDocumentCatalogStore, "findDocumentByIdentity">;
   conversationStore: Pick<
     ConversationStore,
     | "createConversationWithFirstUserMessage"
@@ -208,14 +240,205 @@ async function assertActiveVectorStoreReady(deps: CreateChatResponseDeps) {
 
 function isNonStreamingResponse(
   response: OpenAIResponsesCreateResult,
-): response is Extract<OpenAIResponsesCreateResult, { id: string }> {
+): response is NonStreamingOpenAIResponse & { id: string } {
   return (
     typeof response === "object" &&
     response !== null &&
     "id" in response &&
     typeof response.id === "string" &&
-    "output_text" in response
+    "output_text" in response &&
+    "output" in response &&
+    Array.isArray(response.output)
   );
+}
+
+function getTrimmedString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function getPositiveInteger(value: unknown) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsedValue = Number(value);
+
+    if (Number.isInteger(parsedValue) && parsedValue > 0) {
+      return parsedValue;
+    }
+  }
+
+  return null;
+}
+
+function getAnnotationFileId(annotation: OpenAIResponseOutputTextAnnotation) {
+  switch (annotation.type) {
+    case "container_file_citation":
+    case "file_citation":
+      return annotation.file_id;
+    default:
+      return null;
+  }
+}
+
+function getChatCitationSource(
+  catalogStore: CreateChatResponseDeps["catalogStore"],
+  result: OpenAIResponseFileSearchResult,
+  vectorStoreId: string,
+): Promise<ChatCitation | null> {
+  const fileId = getTrimmedString(result.file_id);
+  const snippet = getTrimmedString(result.text);
+
+  if (!fileId || !snippet) {
+    return Promise.resolve(null);
+  }
+
+  const attributes =
+    result.attributes &&
+    typeof result.attributes === "object" &&
+    !Array.isArray(result.attributes)
+      ? result.attributes
+      : null;
+
+  let documentId = attributes ? getTrimmedString(attributes.doc_id) : null;
+  let documentName = attributes ? getTrimmedString(attributes.title) : null;
+
+  const datasetVersion = attributes
+    ? getTrimmedString(attributes.dataset_version)
+    : null;
+  const documentVersion = attributes
+    ? getPositiveInteger(attributes.document_version)
+    : null;
+
+  if (
+    (!documentId || !documentName) &&
+    datasetVersion &&
+    documentId &&
+    documentVersion
+  ) {
+    return catalogStore
+      .findDocumentByIdentity({
+        datasetVersion,
+        docId: documentId,
+        documentVersion,
+      })
+      .then((catalogDocument) => {
+        if (catalogDocument) {
+          documentId = catalogDocument.docId;
+          documentName = documentName ?? catalogDocument.title;
+        }
+
+        if (!documentId || !documentName) {
+          return null;
+        }
+
+        return {
+          documentId,
+          documentName,
+          fileId,
+          snippet,
+          vectorStoreId,
+        };
+      });
+  }
+
+  if (!documentId || !documentName) {
+    return Promise.resolve(null);
+  }
+
+  return Promise.resolve({
+    documentId,
+    documentName,
+    fileId,
+    snippet,
+    vectorStoreId,
+  });
+}
+
+async function buildChatCitationIndex(
+  catalogStore: CreateChatResponseDeps["catalogStore"],
+  response: NonStreamingOpenAIResponse,
+  vectorStoreId: string,
+) {
+  const citationsByFileId = new Map<string, ChatCitation>();
+
+  for (const item of response.output) {
+    if (item.type !== "file_search_call" || !item.results) {
+      continue;
+    }
+
+    for (const result of item.results) {
+      const citation = await getChatCitationSource(
+        catalogStore,
+        result,
+        vectorStoreId,
+      );
+
+      if (citation && !citationsByFileId.has(citation.fileId)) {
+        citationsByFileId.set(citation.fileId, citation);
+      }
+    }
+  }
+
+  return citationsByFileId;
+}
+
+function extractOutputTextParts(message: OpenAIResponseOutputMessage) {
+  return message.content.filter(
+    (content): content is OpenAIResponseOutputText =>
+      content.type === "output_text",
+  );
+}
+
+async function getResponseCitations(
+  catalogStore: CreateChatResponseDeps["catalogStore"],
+  response: OpenAIResponsesCreateResult,
+  vectorStoreId: string,
+) {
+  if (!isNonStreamingResponse(response)) {
+    return [];
+  }
+
+  const citationsByFileId = await buildChatCitationIndex(
+    catalogStore,
+    response,
+    vectorStoreId,
+  );
+
+  if (citationsByFileId.size === 0) {
+    return [];
+  }
+
+  const citations: ChatCitation[] = [];
+  const seenFileIds = new Set<string>();
+
+  for (const item of response.output) {
+    if (item.type !== "message" || item.role !== "assistant") {
+      continue;
+    }
+
+    for (const content of extractOutputTextParts(item)) {
+      for (const annotation of content.annotations) {
+        const fileId = getAnnotationFileId(annotation);
+
+        if (!fileId || seenFileIds.has(fileId)) {
+          continue;
+        }
+
+        const citation = citationsByFileId.get(fileId);
+
+        if (!citation) {
+          continue;
+        }
+
+        seenFileIds.add(fileId);
+        citations.push(citation);
+      }
+    }
+  }
+
+  return citations;
 }
 
 function getResponseId(response: OpenAIResponsesCreateResult) {
@@ -326,10 +549,16 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
       });
     }
 
+    const citations = await getResponseCitations(
+      deps.catalogStore,
+      response,
+      deps.activeVectorStoreId,
+    );
+
     return {
-      citations: [],
+      citations,
       conversationId: resolvedConversationId,
-      grounded: false,
+      grounded: citations.length > 0,
       messageId: getResponseId(response),
       text: getResponseText(response),
     };

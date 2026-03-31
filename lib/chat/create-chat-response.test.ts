@@ -5,10 +5,14 @@ import { createCreateChatResponse } from "./create-chat-response-core";
 function createDeps() {
   const createConversationWithFirstUserMessage = vi.fn();
   const findConversationHistoryForUserById = vi.fn();
+  const findDocumentByIdentity = vi.fn();
   const createResponse = vi.fn();
   const retrieveVectorStore = vi.fn();
 
   return {
+    catalogStore: {
+      findDocumentByIdentity,
+    },
     conversationStore: {
       createConversationWithFirstUserMessage,
       findConversationHistoryForUserById,
@@ -20,6 +24,7 @@ function createDeps() {
     spies: {
       createConversationWithFirstUserMessage,
       createResponse,
+      findDocumentByIdentity,
       findConversationHistoryForUserById,
       retrieveVectorStore,
     },
@@ -57,10 +62,12 @@ describe("createCreateChatResponse", () => {
     );
     deps.spies.createResponse.mockResolvedValueOnce({
       id: "resp_123",
+      output: [],
       output_text: "Respuesta inicial",
     });
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -136,10 +143,12 @@ describe("createCreateChatResponse", () => {
     );
     deps.spies.createResponse.mockResolvedValueOnce({
       id: "resp_456",
+      output: [],
       output_text: "Seguimos con la consulta",
     });
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -193,6 +202,7 @@ describe("createCreateChatResponse", () => {
     deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce(null);
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -210,6 +220,416 @@ describe("createCreateChatResponse", () => {
       code: "conversation_not_found",
     });
     expect(deps.spies.createResponse).not.toHaveBeenCalled();
+  });
+
+  it("builds grounded citations from assistant annotations and file search results", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_grounded",
+      output: [
+        {
+          id: "fs_1",
+          queries: ["botanica"],
+          results: [
+            {
+              attributes: {
+                doc_id: "botanica-mvp-v1-corpus-mvp",
+                title: "Corpus MVP botánico · botanica-mvp-v1",
+              },
+              file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+              score: 0.98,
+              text: "Botánica es la rama de la biología que estudia las plantas.",
+            },
+            {
+              attributes: {
+                doc_id: "cuidados-suculentas",
+                title: "Guía de suculentas",
+              },
+              file_id: "file-succulent-guide",
+              score: 0.91,
+              text: "Las suculentas almacenan agua en hojas, tallos o raíces.",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+                  filename: "botanica-mvp-v1-corpus-mvp.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+                {
+                  file_id: "file-succulent-guide",
+                  filename: "suculentas.pdf",
+                  index: 1,
+                  type: "container_file_citation",
+                  container_id: "container_1",
+                  end_index: 51,
+                  start_index: 24,
+                },
+                {
+                  file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+                  filename: "botanica-mvp-v1-corpus-mvp.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+              ],
+              text: "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+      ],
+      output_text:
+        "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
+    });
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    const result = await createChatResponse({
+      message: "Consulta grounded",
+      userId: "user-1",
+    });
+
+    expect(result).toEqual({
+      citations: [
+        {
+          documentId: "botanica-mvp-v1-corpus-mvp",
+          documentName: "Corpus MVP botánico · botanica-mvp-v1",
+          fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+          snippet:
+            "Botánica es la rama de la biología que estudia las plantas.",
+          vectorStoreId: "vs_active_123",
+        },
+        {
+          documentId: "cuidados-suculentas",
+          documentName: "Guía de suculentas",
+          fileId: "file-succulent-guide",
+          snippet: "Las suculentas almacenan agua en hojas, tallos o raíces.",
+          vectorStoreId: "vs_active_123",
+        },
+      ],
+      conversationId: "conversation-1",
+      grounded: true,
+      messageId: "resp_grounded",
+      text: "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
+    });
+  });
+
+  it("falls back to the catalog when historical file search results do not expose a title", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.findDocumentByIdentity.mockResolvedValueOnce({
+      canonicalPath:
+        "datasets/mvp-2026-03/botanica-mvp-v1-corpus-mvp/v1/file.pdf",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      customMetadata: {},
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+      id: "catalog-1",
+      lastError: null,
+      lastIndexedAt: "2026-03-31T12:00:00.000Z",
+      mimeType: "application/pdf",
+      openAIFileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+      originalFilename: "botanica-mvp-v1-corpus-mvp.pdf",
+      sha256: "abc123",
+      status: "ready",
+      title: "Corpus MVP botánico · botanica-mvp-v1",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+      vectorStoreId: "vs_active_123",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_catalog_fallback",
+      output: [
+        {
+          id: "fs_1",
+          queries: ["botanica"],
+          results: [
+            {
+              attributes: {
+                dataset_version: "mvp-2026-03",
+                doc_id: "botanica-mvp-v1-corpus-mvp",
+                document_version: 1,
+              },
+              file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+              text: "Snippet recuperado del resultado histórico.",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+                  filename: "botanica-mvp-v1-corpus-mvp.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+              ],
+              text: "Respuesta grounded con fallback de catálogo.",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+      ],
+      output_text: "Respuesta grounded con fallback de catálogo.",
+    });
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    const result = await createChatResponse({
+      message: "Consulta grounded",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.findDocumentByIdentity).toHaveBeenCalledWith({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    });
+    expect(result.citations).toEqual([
+      {
+        documentId: "botanica-mvp-v1-corpus-mvp",
+        documentName: "Corpus MVP botánico · botanica-mvp-v1",
+        fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+        snippet: "Snippet recuperado del resultado histórico.",
+        vectorStoreId: "vs_active_123",
+      },
+    ]);
+    expect(result.grounded).toBe(true);
+  });
+
+  it("uses the first valid file search hit as the canonical snippet for a cited file", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_deduped",
+      output: [
+        {
+          id: "fs_1",
+          queries: ["botanica"],
+          results: [
+            {
+              attributes: {
+                doc_id: "botanica-mvp-v1-corpus-mvp",
+                title: "Corpus MVP botánico · botanica-mvp-v1",
+              },
+              file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+              text: "Primer snippet canónico.",
+            },
+            {
+              attributes: {
+                doc_id: "botanica-mvp-v1-corpus-mvp",
+                title: "Corpus MVP botánico · botanica-mvp-v1",
+              },
+              file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+              text: "Segundo snippet menos estable.",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+                  filename: "botanica-mvp-v1-corpus-mvp.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+              ],
+              text: "Respuesta grounded.",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+      ],
+      output_text: "Respuesta grounded.",
+    });
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    const result = await createChatResponse({
+      message: "Consulta grounded",
+      userId: "user-1",
+    });
+
+    expect(result.citations).toEqual([
+      {
+        documentId: "botanica-mvp-v1-corpus-mvp",
+        documentName: "Corpus MVP botánico · botanica-mvp-v1",
+        fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+        snippet: "Primer snippet canónico.",
+        vectorStoreId: "vs_active_123",
+      },
+    ]);
+    expect(result.grounded).toBe(true);
+  });
+
+  it("ignores annotations without usable file search metadata and stays ungrounded", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_missing_metadata",
+      output: [
+        {
+          id: "fs_1",
+          queries: ["botanica"],
+          results: [
+            {
+              attributes: {
+                title: "Sin doc_id",
+              },
+              file_id: "file-without-doc-id",
+              text: "Snippet incompleto.",
+            },
+            {
+              attributes: {
+                doc_id: "sin-snippet",
+                title: "Sin snippet",
+              },
+              file_id: "file-without-snippet",
+              text: "",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-without-doc-id",
+                  filename: "sin-docid.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+                {
+                  file_id: "file-without-snippet",
+                  filename: "sin-snippet.pdf",
+                  index: 1,
+                  type: "file_citation",
+                },
+              ],
+              text: "Respuesta sin grounding usable.",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+      ],
+      output_text: "Respuesta sin grounding usable.",
+    });
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    const result = await createChatResponse({
+      message: "Consulta grounded",
+      userId: "user-1",
+    });
+
+    expect(result.citations).toEqual([]);
+    expect(result.grounded).toBe(false);
   });
 
   it("keeps non-rate-limit upstream failures behind the generic upstream error code", async () => {
@@ -239,6 +659,7 @@ describe("createCreateChatResponse", () => {
     );
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -284,6 +705,7 @@ describe("createCreateChatResponse", () => {
     );
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -327,6 +749,7 @@ describe("createCreateChatResponse", () => {
     );
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -372,6 +795,7 @@ describe("createCreateChatResponse", () => {
     );
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -412,6 +836,7 @@ describe("createCreateChatResponse", () => {
     );
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -456,6 +881,7 @@ describe("createCreateChatResponse", () => {
     });
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -500,6 +926,7 @@ describe("createCreateChatResponse", () => {
     });
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 12,
       maxOutputTokens: 800,
@@ -561,10 +988,12 @@ describe("createCreateChatResponse", () => {
     );
     deps.spies.createResponse.mockResolvedValueOnce({
       id: "resp_789",
+      output: [],
       output_text: "Respuesta truncada",
     });
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
       conversationStore: deps.conversationStore,
       maxHistoryTurns: 2,
       maxOutputTokens: 321,

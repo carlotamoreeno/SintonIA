@@ -179,9 +179,18 @@ describe("POST /api/chat", () => {
       },
     });
     createChatResponseMock.mockResolvedValueOnce({
-      citations: [],
+      citations: [
+        {
+          documentId: "botanica-mvp-v1-corpus-mvp",
+          documentName: "Corpus MVP botánico · botanica-mvp-v1",
+          fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+          snippet:
+            "Botánica es la rama de la biología que estudia las plantas.",
+          vectorStoreId: "vs_active_123",
+        },
+      ],
       conversationId: "conversation-1",
-      grounded: false,
+      grounded: true,
       messageId: "message-1",
       text: "Respuesta inicial",
     });
@@ -205,9 +214,18 @@ describe("POST /api/chat", () => {
     });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      citations: [],
+      citations: [
+        {
+          documentId: "botanica-mvp-v1-corpus-mvp",
+          documentName: "Corpus MVP botánico · botanica-mvp-v1",
+          fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+          snippet:
+            "Botánica es la rama de la biología que estudia las plantas.",
+          vectorStoreId: "vs_active_123",
+        },
+      ],
       conversationId: "conversation-1",
-      grounded: false,
+      grounded: true,
       messageId: "message-1",
       text: "Respuesta inicial",
     });
