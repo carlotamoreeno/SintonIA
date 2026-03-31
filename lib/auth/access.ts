@@ -8,7 +8,12 @@ export function isProtectedPagePath(pathname: string) {
 }
 
 export function isProtectedApiPath(pathname: string) {
-  return pathname === "/api/me" || pathname.startsWith("/api/me/");
+  return (
+    pathname === "/api/me" ||
+    pathname.startsWith("/api/me/") ||
+    pathname === "/api/chat" ||
+    pathname.startsWith("/api/chat/")
+  );
 }
 
 export function normalizeCallbackPath(callbackPath: string | null | undefined) {
