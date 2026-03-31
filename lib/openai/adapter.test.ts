@@ -14,6 +14,8 @@ vi.mock("./client", () => ({
     },
     vectorStores: {
       create: vi.fn(),
+      delete: vi.fn(),
+      retrieve: vi.fn(),
       search: vi.fn(),
       files: {
         create: vi.fn(),
@@ -43,6 +45,8 @@ function createMockClient() {
     },
     vectorStores: {
       create: vi.fn(),
+      delete: vi.fn(),
+      retrieve: vi.fn(),
       search: vi.fn(),
       files: {
         create: vi.fn(),
@@ -188,6 +192,48 @@ describe("createOpenAIAdapter", () => {
       undefined,
     );
     expect(result).toBe(expectedVectorStore);
+  });
+
+  it("delegates vector store retrieval without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedVectorStore = {
+      _request_id: "req_vs_retrieve_123",
+      id: "vs_123",
+      name: "sintonia-mvp-2026-03",
+      object: "vector_store",
+    };
+    client.vectorStores.retrieve.mockResolvedValue(
+      expectedVectorStore as never,
+    );
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.retrieveVectorStore("vs_123");
+
+    expect(client.vectorStores.retrieve).toHaveBeenCalledWith(
+      "vs_123",
+      undefined,
+    );
+    expect(result).toBe(expectedVectorStore);
+  });
+
+  it("delegates vector store deletion without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedDeletion = {
+      _request_id: "req_vs_delete_123",
+      deleted: true,
+      id: "vs_123",
+      object: "vector_store.deleted",
+    };
+    client.vectorStores.delete.mockResolvedValue(expectedDeletion as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.deleteVectorStore("vs_123");
+
+    expect(client.vectorStores.delete).toHaveBeenCalledWith(
+      "vs_123",
+      undefined,
+    );
+    expect(result).toBe(expectedDeletion);
   });
 
   it("delegates vector store file creation without reshaping the SDK result", async () => {

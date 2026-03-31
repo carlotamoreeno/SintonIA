@@ -42,6 +42,18 @@ export type OpenAIVectorStoreCreateOptions = Parameters<
 export type OpenAIVectorStoreCreateResult = Awaited<
   ReturnType<OpenAI["vectorStores"]["create"]>
 >;
+export type OpenAIVectorStoreRetrieveOptions = Parameters<
+  OpenAI["vectorStores"]["retrieve"]
+>[1];
+export type OpenAIVectorStoreRetrieveResult = Awaited<
+  ReturnType<OpenAI["vectorStores"]["retrieve"]>
+>;
+export type OpenAIVectorStoreDeleteOptions = Parameters<
+  OpenAI["vectorStores"]["delete"]
+>[1];
+export type OpenAIVectorStoreDeleteResult = Awaited<
+  ReturnType<OpenAI["vectorStores"]["delete"]>
+>;
 
 export type OpenAIVectorStoreFileCreateParams = Parameters<
   OpenAI["vectorStores"]["files"]["create"]
@@ -79,7 +91,10 @@ export type OpenAIAdapterClient = {
     "create" | "delete" | "retrieve" | "waitForProcessing"
   >;
   responses: Pick<OpenAIClient["responses"], "create">;
-  vectorStores: Pick<OpenAIClient["vectorStores"], "create" | "search"> & {
+  vectorStores: Pick<
+    OpenAIClient["vectorStores"],
+    "create" | "delete" | "retrieve" | "search"
+  > & {
     files: OpenAIVectorStoreFilesClient;
   };
 };
@@ -109,6 +124,14 @@ export type OpenAIAdapter = {
     body: OpenAIVectorStoreCreateParams,
     options?: OpenAIVectorStoreCreateOptions,
   ): Promise<OpenAIVectorStoreCreateResult>;
+  retrieveVectorStore(
+    vectorStoreId: string,
+    options?: OpenAIVectorStoreRetrieveOptions,
+  ): Promise<OpenAIVectorStoreRetrieveResult>;
+  deleteVectorStore(
+    vectorStoreId: string,
+    options?: OpenAIVectorStoreDeleteOptions,
+  ): Promise<OpenAIVectorStoreDeleteResult>;
   createVectorStoreFile(
     vectorStoreId: string,
     body: OpenAIVectorStoreFileCreateParams,
@@ -239,6 +262,18 @@ export function createOpenAIAdapter(
     async createVectorStore(body, options) {
       return executeOpenAIRequest(() =>
         client.vectorStores.create(body, options),
+      );
+    },
+
+    async retrieveVectorStore(vectorStoreId, options) {
+      return executeOpenAIRequest(() =>
+        client.vectorStores.retrieve(vectorStoreId, options),
+      );
+    },
+
+    async deleteVectorStore(vectorStoreId, options) {
+      return executeOpenAIRequest(() =>
+        client.vectorStores.delete(vectorStoreId, options),
       );
     },
 

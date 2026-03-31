@@ -57,6 +57,7 @@ npm run start
 npm run lint
 npm run lint:fix
 npm run knowledge:openai:upload -- --dataset-version <value> --doc-id <value> --document-version <value>
+npm run knowledge:vector-store:create -- --dataset-version <value> [--existing-vector-store-id <id>] [--name <value>]
 npm run test
 npm run typecheck
 npm run format
@@ -94,6 +95,19 @@ El comando:
 - actualiza `knowledge_documents` con `openai_file_id`, `status=uploaded|failed` y `last_error`.
 
 Si la fila ya tiene `openai_file_id` o esta `retired`, el comando falla sin re-subir el documento.
+
+Tambien existe un registro reproducible del vector store por dataset:
+
+```bash
+npm run knowledge:vector-store:create -- --dataset-version mvp-2026-03 --existing-vector-store-id "$OPENAI_ACTIVE_VECTOR_STORE_ID"
+```
+
+El comando:
+
+- registra de forma durable el mapeo `dataset_version -> vector_store_id` en `knowledge_vector_store_registry`;
+- reutiliza el store remoto ya existente cuando se pasa `--existing-vector-store-id`;
+- crea un store nuevo y lo registra solo cuando no se pasa ese flag;
+- no adjunta ni reindexa archivos; ese trabajo sigue diferido al slice de indexacion.
 
 ## Despliegue en Vercel
 
