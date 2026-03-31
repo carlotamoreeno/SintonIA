@@ -37,6 +37,13 @@ La plantilla versionada es [`.env.example`](./.env.example) e incluye estas fami
 
 Los valores por defecto de la plantilla reflejan los limites actuales definidos en el MVP.
 
+Semantica actual de los runtime caps:
+
+- `CHAT_MAX_MESSAGE_CHARS` limita el mensaje de entrada validado por el endpoint y por la accion server-side que inicia conversaciones.
+- `CHAT_MAX_HISTORY_TURNS` limita a los ultimos mensajes persistidos reenviados al modelo en cada llamada de chat.
+- `CHAT_MAX_OUTPUT_TOKENS` se propaga a Responses API como `max_output_tokens` para acotar la salida generada.
+- `CHAT_RATE_LIMIT_PER_MIN` aplica una ventana fija de 1 minuto por `user.id` persistido en `POST /api/chat`.
+
 Notas de auth del slice actual:
 
 - `AUTH_EXPERT_EMAILS` y `AUTH_ADMIN_EMAILS` aceptan listas separadas por comas; se normalizan con trim + lowercase.

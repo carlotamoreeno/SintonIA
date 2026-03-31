@@ -303,6 +303,50 @@ describe("createCreateChatResponse", () => {
     });
   });
 
+  it("keeps OpenAI rate limits from vector store preflight mapped to 429", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockRejectedValueOnce(
+      new OpenAIAdapterError({
+        cause: new Error("provider failed"),
+        code: "rate_limit_exceeded",
+        message: "Rate limit exceeded.",
+        requestId: "req_456",
+        retryable: true,
+        status: 429,
+        type: "rate_limit_error",
+      }),
+    );
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    await expect(
+      createChatResponse({
+        message: "Consulta inicial",
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "rate_limited",
+      message:
+        "Active vector store vs_active_123 could not be loaded for chat retrieval: Rate limit exceeded. | request_id=req_456 | code=rate_limit_exceeded",
+    });
+    expect(deps.spies.createResponse).not.toHaveBeenCalled();
+  });
+
   it("classifies OpenAI timeouts so the route can expose a 504", async () => {
     const deps = createDeps();
     deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
@@ -344,6 +388,48 @@ describe("createCreateChatResponse", () => {
       code: "upstream_timeout",
       message: "Request timed out.",
     });
+  });
+
+  it("keeps OpenAI timeouts from vector store preflight mapped to 504", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockRejectedValueOnce(
+      new OpenAIAdapterError({
+        cause: Object.assign(new Error("Request timed out."), {
+          name: "APIConnectionTimeoutError",
+        }),
+        message: "Request timed out.",
+        retryable: true,
+      }),
+    );
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    await expect(
+      createChatResponse({
+        message: "Consulta inicial",
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "upstream_timeout",
+      message:
+        "Active vector store vs_active_123 could not be loaded for chat retrieval: Request timed out.",
+    });
+    expect(deps.spies.createResponse).not.toHaveBeenCalled();
   });
 
   it("fails before inference when the active vector store is not ready", async () => {

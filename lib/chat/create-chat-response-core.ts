@@ -184,7 +184,7 @@ async function assertActiveVectorStoreReady(deps: CreateChatResponseDeps) {
   } catch (error) {
     throw new CreateChatResponseError({
       cause: error,
-      code: "upstream_request_failed",
+      code: getCreateChatResponseUpstreamErrorCode(error),
       message: `Active vector store ${deps.activeVectorStoreId} could not be loaded for chat retrieval: ${getDetailedErrorMessage(error)}`,
     });
   }
