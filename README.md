@@ -64,6 +64,7 @@ npm run knowledge:vector-store:create -- --dataset-version <value> [--existing-v
 npm run knowledge:vector-store:attach -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run knowledge:vector-store:reindex:document -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run test
+npm run test:live:chat
 npm run typecheck
 npm run format
 npm run format:check
@@ -82,6 +83,21 @@ npm run build
 ```
 
 El workflow de CI `quality` vive en [`.github/workflows/quality.yml`](./.github/workflows/quality.yml) y ejecuta esa misma secuencia en GitHub Actions. El bloqueo efectivo de merges depende de exigir ese check en la configuracion del repositorio.
+
+Para un smoke real contra el stack desplegable local y el API real de OpenAI existe ademas:
+
+```bash
+npm run test:live:chat
+```
+
+Ese comando:
+
+- ejecuta `next build`;
+- levanta `next start` en un puerto local temporal;
+- sintetiza una sesion Auth.js local para golpear `/api/me` y `/api/chat` autenticados sin login interactivo;
+- verifica `401`, `400`, alta de conversacion nueva, continuacion de una conversacion propia y rehidratacion SSR del primer mensaje persistido;
+- usa el API real de OpenAI, por lo que consume coste real y requiere variables reales de Auth, Supabase y OpenAI;
+- limpia al final los datos temporales creados en Supabase para no dejar ruido operacional.
 
 ## Operaciones de conocimiento
 

@@ -14,6 +14,7 @@
     "knowledge:vector-store:reindex:document": "tsx ./tools/knowledge/reindex-knowledge-document.mts",
     "knowledge:manifest:verify": "tsx ./tools/knowledge/verify-initial-manifest.mts",
     "test": "vitest run",
+    "test:live:chat": "tsx ./tools/chat/test-live-chat-api.mts",
     "typecheck": "next typegen && mkdir -p .next/types && touch .next/types/cache-life.d.ts && npx tsc --noEmit --incremental false",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
