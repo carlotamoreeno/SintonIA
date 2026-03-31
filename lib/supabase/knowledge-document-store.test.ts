@@ -404,4 +404,174 @@ describe("createKnowledgeDocumentCatalogStore", () => {
       "Failed to record knowledge document OpenAI upload result: update-boom",
     );
   });
+
+  it("records an attached vector store index result on the catalog row", async () => {
+    const singleMock = vi.fn().mockResolvedValue({
+      data: {
+        id: "doc-row-5",
+        doc_id: "orchid-care",
+        title: "Guia de orquideas",
+        original_filename: "orchid-guide.pdf",
+        document_version: 2,
+        status: "attached",
+        canonical_path:
+          "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+        mime_type: "application/pdf",
+        sha256: "1".repeat(64),
+        dataset_version: "mvp-2026-03",
+        openai_file_id: "file_uploaded_123",
+        vector_store_id: "vs_123",
+        custom_metadata_json: {},
+        last_indexed_at: null,
+        last_error: null,
+        created_at: "2026-03-30T15:37:24.868Z",
+        updated_at: "2026-03-31T09:00:00.000Z",
+      },
+      error: null,
+    });
+    const selectMock = vi.fn().mockReturnValue({
+      single: singleMock,
+    });
+    const documentVersionEqMock = vi.fn().mockReturnValue({
+      select: selectMock,
+    });
+    const docIdEqMock = vi.fn().mockReturnValue({
+      eq: documentVersionEqMock,
+    });
+    const datasetEqMock = vi.fn().mockReturnValue({
+      eq: docIdEqMock,
+    });
+    const updateMock = vi.fn().mockReturnValue({
+      eq: datasetEqMock,
+    });
+    const fromMock = vi.fn().mockReturnValue({
+      update: updateMock,
+    });
+    const store = createKnowledgeDocumentCatalogStore({
+      from: fromMock,
+    } as never);
+
+    const result = await store.recordVectorStoreIndexResult({
+      datasetVersion: "mvp-2026-03",
+      docId: "orchid-care",
+      documentVersion: 2,
+      lastError: null,
+      lastIndexedAt: null,
+      status: "attached",
+      vectorStoreId: "vs_123",
+    });
+
+    expect(updateMock).toHaveBeenCalledWith({
+      last_error: null,
+      last_indexed_at: null,
+      status: "attached",
+      updated_at: expect.any(String),
+      vector_store_id: "vs_123",
+    });
+    expect(result).toMatchObject({
+      docId: "orchid-care",
+      documentVersion: 2,
+      lastError: null,
+      lastIndexedAt: null,
+      openAIFileId: "file_uploaded_123",
+      status: "attached",
+      vectorStoreId: "vs_123",
+    });
+  });
+
+  it("records a failed vector store index result without touching the OpenAI file id", async () => {
+    const singleMock = vi.fn().mockResolvedValue({
+      data: {
+        id: "doc-row-6",
+        doc_id: "orchid-care",
+        title: "Guia de orquideas",
+        original_filename: "orchid-guide.pdf",
+        document_version: 2,
+        status: "failed",
+        canonical_path:
+          "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+        mime_type: "application/pdf",
+        sha256: "2".repeat(64),
+        dataset_version: "mvp-2026-03",
+        openai_file_id: "file_uploaded_123",
+        vector_store_id: "vs_123",
+        custom_metadata_json: {},
+        last_indexed_at: "2026-03-31T09:05:00.000Z",
+        last_error: "Vector store file finished with status failed.",
+        created_at: "2026-03-30T15:37:24.868Z",
+        updated_at: "2026-03-31T09:05:00.000Z",
+      },
+      error: null,
+    });
+    const store = createKnowledgeDocumentCatalogStore({
+      from: vi.fn().mockReturnValue({
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                  single: singleMock,
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as never);
+
+    await expect(
+      store.recordVectorStoreIndexResult({
+        datasetVersion: "mvp-2026-03",
+        docId: "orchid-care",
+        documentVersion: 2,
+        lastError: "Vector store file finished with status failed.",
+        lastIndexedAt: "2026-03-31T09:05:00.000Z",
+        status: "failed",
+        vectorStoreId: "vs_123",
+      }),
+    ).resolves.toMatchObject({
+      lastError: "Vector store file finished with status failed.",
+      lastIndexedAt: "2026-03-31T09:05:00.000Z",
+      openAIFileId: "file_uploaded_123",
+      status: "failed",
+      vectorStoreId: "vs_123",
+    });
+  });
+
+  it("throws when recording the vector store index result fails", async () => {
+    const store = createKnowledgeDocumentCatalogStore({
+      from: vi.fn().mockReturnValue({
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({
+                    data: null,
+                    error: {
+                      message: "vector-index-update-boom",
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as never);
+
+    await expect(
+      store.recordVectorStoreIndexResult({
+        datasetVersion: "mvp-2026-03",
+        docId: "orchid-care",
+        documentVersion: 2,
+        lastError: "boom",
+        lastIndexedAt: "2026-03-31T09:05:00.000Z",
+        status: "failed",
+        vectorStoreId: "vs_123",
+      }),
+    ).rejects.toThrow(
+      "Failed to record knowledge document vector store index result: vector-index-update-boom",
+    );
+  });
 });

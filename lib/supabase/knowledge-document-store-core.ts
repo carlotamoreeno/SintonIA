@@ -91,6 +91,18 @@ export type KnowledgeDocumentCatalogStore = {
     openAIFileId: string | null;
     status: Extract<KnowledgeDocumentCatalogStatus, "uploaded" | "failed">;
   }): Promise<KnowledgeDocumentCatalogDocument>;
+  recordVectorStoreIndexResult(input: {
+    datasetVersion: string;
+    docId: string;
+    documentVersion: number;
+    lastError: string | null;
+    lastIndexedAt: string | null;
+    status: Extract<
+      KnowledgeDocumentCatalogStatus,
+      "attached" | "ready" | "failed"
+    >;
+    vectorStoreId: string | null;
+  }): Promise<KnowledgeDocumentCatalogDocument>;
 };
 
 const existingKnowledgeDocumentSelect =
@@ -203,6 +215,33 @@ export function createKnowledgeDocumentCatalogStore(
       if (error || !data) {
         throw new Error(
           `Failed to record knowledge document OpenAI upload result: ${error?.message}`,
+        );
+      }
+
+      return mapKnowledgeDocumentCatalogDocument(
+        knowledgeDocumentCatalogDocumentRowSchema.parse(data),
+      );
+    },
+
+    async recordVectorStoreIndexResult(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .update({
+          last_error: input.lastError,
+          last_indexed_at: input.lastIndexedAt,
+          status: input.status,
+          updated_at: getCurrentTimestamp(),
+          vector_store_id: input.vectorStoreId,
+        })
+        .eq("dataset_version", input.datasetVersion)
+        .eq("doc_id", input.docId)
+        .eq("document_version", input.documentVersion)
+        .select(knowledgeDocumentCatalogDocumentSelect)
+        .single<KnowledgeDocumentCatalogDocumentRow>();
+
+      if (error || !data) {
+        throw new Error(
+          `Failed to record knowledge document vector store index result: ${error?.message}`,
         );
       }
 

@@ -76,6 +76,7 @@ function createDeps() {
       }),
       findFirstDocumentBySha256: vi.fn(),
       recordOpenAIUploadResult: vi.fn(),
+      recordVectorStoreIndexResult: vi.fn(),
     },
     openAI: {
       retrieveFile: vi.fn().mockResolvedValue({

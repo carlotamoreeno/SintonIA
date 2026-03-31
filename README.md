@@ -58,6 +58,7 @@ npm run lint
 npm run lint:fix
 npm run knowledge:openai:upload -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run knowledge:vector-store:create -- --dataset-version <value> [--existing-vector-store-id <id>] [--name <value>]
+npm run knowledge:vector-store:attach -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run test
 npm run typecheck
 npm run format
@@ -108,6 +109,20 @@ El comando:
 - reutiliza el store remoto ya existente cuando se pasa `--existing-vector-store-id`;
 - crea un store nuevo y lo registra solo cuando no se pasa ese flag;
 - no adjunta ni reindexa archivos; ese trabajo sigue diferido al slice de indexacion.
+
+Y ahora existe tambien la adjuncion reproducible de un documento ya subido al vector store registrado para su `dataset_version`:
+
+```bash
+npm run knowledge:vector-store:attach -- --dataset-version mvp-2026-03 --doc-id botanica-mvp-v1-corpus-mvp --document-version 1
+```
+
+El comando:
+
+- exige que la fila ya tenga `openai_file_id`;
+- resuelve el vector store desde `knowledge_vector_store_registry`;
+- adjunta el archivo con atributos minimos `{ doc_id, dataset_version, document_version }`;
+- persiste `status=attached|ready|failed` junto con `vector_store_id`, `last_indexed_at` y `last_error`;
+- intenta borrar el adjunto remoto si la persistencia catalogal falla despues del attach para dejar la fila en un estado reintentable y auditable.
 
 ## Despliegue en Vercel
 

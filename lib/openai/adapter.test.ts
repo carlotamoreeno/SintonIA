@@ -19,6 +19,8 @@ vi.mock("./client", () => ({
       search: vi.fn(),
       files: {
         create: vi.fn(),
+        delete: vi.fn(),
+        poll: vi.fn(),
         retrieve: vi.fn(),
       },
     },
@@ -50,6 +52,8 @@ function createMockClient() {
       search: vi.fn(),
       files: {
         create: vi.fn(),
+        delete: vi.fn(),
+        poll: vi.fn(),
         retrieve: vi.fn(),
       },
     },
@@ -285,6 +289,58 @@ describe("createOpenAIAdapter", () => {
         vector_store_id: "vs_123",
       },
       undefined,
+    );
+    expect(result).toBe(expectedVectorStoreFile);
+  });
+
+  it("delegates vector store file deletion without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedVectorStoreFileDeletion = {
+      deleted: true,
+      id: "file_123",
+      object: "vector_store.file.deleted",
+    };
+    client.vectorStores.files.delete.mockResolvedValue(
+      expectedVectorStoreFileDeletion as never,
+    );
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.deleteVectorStoreFile("vs_123", "file_123");
+
+    expect(client.vectorStores.files.delete).toHaveBeenCalledWith(
+      "file_123",
+      {
+        vector_store_id: "vs_123",
+      },
+      undefined,
+    );
+    expect(result).toBe(expectedVectorStoreFileDeletion);
+  });
+
+  it("delegates vector store file polling without reshaping the SDK result", async () => {
+    const client = createMockClient();
+    const expectedVectorStoreFile = {
+      _request_id: "req_vsf_poll_123",
+      id: "file_123",
+      object: "vector_store.file",
+      status: "completed",
+      vector_store_id: "vs_123",
+    };
+    client.vectorStores.files.poll.mockResolvedValue(
+      expectedVectorStoreFile as never,
+    );
+    const adapter = createOpenAIAdapter(client);
+
+    const result = await adapter.pollVectorStoreFile("vs_123", "file_123", {
+      pollIntervalMs: 1_000,
+    });
+
+    expect(client.vectorStores.files.poll).toHaveBeenCalledWith(
+      "vs_123",
+      "file_123",
+      {
+        pollIntervalMs: 1_000,
+      },
     );
     expect(result).toBe(expectedVectorStoreFile);
   });

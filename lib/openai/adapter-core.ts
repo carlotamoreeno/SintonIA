@@ -64,6 +64,18 @@ export type OpenAIVectorStoreFileCreateOptions = Parameters<
 export type OpenAIVectorStoreFileCreateResult = Awaited<
   ReturnType<OpenAI["vectorStores"]["files"]["create"]>
 >;
+export type OpenAIVectorStoreFileDeleteOptions = Parameters<
+  OpenAI["vectorStores"]["files"]["delete"]
+>[2];
+export type OpenAIVectorStoreFileDeleteResult = Awaited<
+  ReturnType<OpenAI["vectorStores"]["files"]["delete"]>
+>;
+export type OpenAIVectorStoreFilePollOptions = Parameters<
+  OpenAI["vectorStores"]["files"]["poll"]
+>[2];
+export type OpenAIVectorStoreFilePollResult = Awaited<
+  ReturnType<OpenAI["vectorStores"]["files"]["poll"]>
+>;
 export type OpenAIVectorStoreFileRetrieveOptions = Parameters<
   OpenAI["vectorStores"]["files"]["retrieve"]
 >[2];
@@ -82,7 +94,7 @@ export type OpenAIVectorStoreSearchResult = Awaited<
 
 type OpenAIVectorStoreFilesClient = Pick<
   OpenAIClient["vectorStores"]["files"],
-  "create" | "retrieve"
+  "create" | "delete" | "poll" | "retrieve"
 >;
 
 export type OpenAIAdapterClient = {
@@ -137,6 +149,16 @@ export type OpenAIAdapter = {
     body: OpenAIVectorStoreFileCreateParams,
     options?: OpenAIVectorStoreFileCreateOptions,
   ): Promise<OpenAIVectorStoreFileCreateResult>;
+  deleteVectorStoreFile(
+    vectorStoreId: string,
+    fileId: string,
+    options?: OpenAIVectorStoreFileDeleteOptions,
+  ): Promise<OpenAIVectorStoreFileDeleteResult>;
+  pollVectorStoreFile(
+    vectorStoreId: string,
+    fileId: string,
+    options?: OpenAIVectorStoreFilePollOptions,
+  ): Promise<OpenAIVectorStoreFilePollResult>;
   retrieveVectorStoreFile(
     vectorStoreId: string,
     fileId: string,
@@ -280,6 +302,24 @@ export function createOpenAIAdapter(
     async createVectorStoreFile(vectorStoreId, body, options) {
       return executeOpenAIRequest(() =>
         client.vectorStores.files.create(vectorStoreId, body, options),
+      );
+    },
+
+    async deleteVectorStoreFile(vectorStoreId, fileId, options) {
+      return executeOpenAIRequest(() =>
+        client.vectorStores.files.delete(
+          fileId,
+          {
+            vector_store_id: vectorStoreId,
+          },
+          options,
+        ),
+      );
+    },
+
+    async pollVectorStoreFile(vectorStoreId, fileId, options) {
+      return executeOpenAIRequest(() =>
+        client.vectorStores.files.poll(vectorStoreId, fileId, options),
       );
     },
 
