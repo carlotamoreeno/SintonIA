@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { UNAUTHENTICATED_API_MESSAGE } from "@/lib/auth/access";
 import {
   INVALID_CHAT_REQUEST_MESSAGE,
+  RATE_LIMITED_CHAT_MESSAGE,
   UPSTREAM_CHAT_ERROR_MESSAGE,
+  UPSTREAM_CHAT_TIMEOUT_MESSAGE,
 } from "@/lib/chat/chat-route";
 
 const getOptionalAppSessionMock = vi.fn();
@@ -245,6 +247,68 @@ describe("POST /api/chat", () => {
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
       message: UPSTREAM_CHAT_ERROR_MESSAGE,
+    });
+  });
+
+  it("returns 429 when the chat runtime reports rate limiting", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+    const { CreateChatResponseError } =
+      await import("@/lib/chat/create-chat-response");
+    createChatResponseMock.mockRejectedValueOnce(
+      new CreateChatResponseError({
+        code: "rate_limited",
+        message: "Rate limit exceeded.",
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(createJsonRequest({ message: "Hola" }));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      message: RATE_LIMITED_CHAT_MESSAGE,
+    });
+  });
+
+  it("returns 504 when the chat runtime reports an upstream timeout", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+    const { CreateChatResponseError } =
+      await import("@/lib/chat/create-chat-response");
+    createChatResponseMock.mockRejectedValueOnce(
+      new CreateChatResponseError({
+        code: "upstream_timeout",
+        message: "Request timed out.",
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(createJsonRequest({ message: "Hola" }));
+
+    expect(response.status).toBe(504);
+    await expect(response.json()).resolves.toEqual({
+      message: UPSTREAM_CHAT_TIMEOUT_MESSAGE,
     });
   });
 

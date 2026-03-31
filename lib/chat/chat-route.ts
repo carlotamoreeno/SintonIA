@@ -3,7 +3,10 @@ import { DEFAULT_CHAT_MAX_MESSAGE_CHARS } from "./env";
 
 export const INVALID_CHAT_REQUEST_MESSAGE = "Invalid request payload";
 export const INVALID_CHAT_CONVERSATION_ID_MESSAGE = "Invalid conversationId.";
+export const RATE_LIMITED_CHAT_MESSAGE =
+  "Too many chat requests. Please try again soon.";
 export const UPSTREAM_CHAT_ERROR_MESSAGE = "Upstream chat request failed.";
+export const UPSTREAM_CHAT_TIMEOUT_MESSAGE = "Upstream chat request timed out.";
 
 export const chatRequestBodySchema = z.object({
   conversationId: z

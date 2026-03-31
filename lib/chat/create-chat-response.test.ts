@@ -204,7 +204,50 @@ describe("createCreateChatResponse", () => {
     expect(deps.spies.createResponse).not.toHaveBeenCalled();
   });
 
-  it("wraps OpenAI failures behind the temporary upstream error code", async () => {
+  it("keeps non-rate-limit upstream failures behind the generic upstream error code", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockRejectedValueOnce(
+      new OpenAIAdapterError({
+        cause: new Error("provider failed"),
+        code: "internal_error",
+        message: "Provider failed.",
+        requestId: "req_123",
+        retryable: true,
+        status: 500,
+        type: "server_error",
+      }),
+    );
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      conversationStore: deps.conversationStore,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    await expect(
+      createChatResponse({
+        message: "Consulta inicial",
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "upstream_request_failed",
+      message: "Provider failed. | request_id=req_123 | code=internal_error",
+    });
+  });
+
+  it("classifies OpenAI rate limits so the route can expose a 429", async () => {
     const deps = createDeps();
     deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
       conversationId: "conversation-1",
@@ -242,9 +285,50 @@ describe("createCreateChatResponse", () => {
         userId: "user-1",
       }),
     ).rejects.toMatchObject({
-      code: "upstream_request_failed",
+      code: "rate_limited",
       message:
         "Rate limit exceeded. | request_id=req_123 | code=rate_limit_exceeded",
+    });
+  });
+
+  it("classifies OpenAI timeouts so the route can expose a 504", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockRejectedValueOnce(
+      new OpenAIAdapterError({
+        cause: Object.assign(new Error("Request timed out."), {
+          name: "APIConnectionTimeoutError",
+        }),
+        message: "Request timed out.",
+        retryable: true,
+      }),
+    );
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      conversationStore: deps.conversationStore,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    await expect(
+      createChatResponse({
+        message: "Consulta inicial",
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "upstream_timeout",
+      message: "Request timed out.",
     });
   });
 

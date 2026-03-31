@@ -34,6 +34,8 @@ export type CreateChatResponseResult = {
 
 export type CreateChatResponseErrorCode =
   | "conversation_not_found"
+  | "rate_limited"
+  | "upstream_timeout"
   | "upstream_request_failed";
 
 type CreateChatResponseErrorInput = {
@@ -97,6 +99,30 @@ function getDetailedErrorMessage(error: unknown) {
   }
 
   return getErrorMessage(error);
+}
+
+function isOpenAITimeoutError(error: OpenAIAdapterError) {
+  return (
+    error.status === 504 ||
+    (error.cause instanceof Error &&
+      error.cause.name === "APIConnectionTimeoutError")
+  );
+}
+
+function getCreateChatResponseUpstreamErrorCode(
+  error: unknown,
+): CreateChatResponseErrorCode {
+  if (error instanceof OpenAIAdapterError) {
+    if (error.status === 429) {
+      return "rate_limited";
+    }
+
+    if (isOpenAITimeoutError(error)) {
+      return "upstream_timeout";
+    }
+  }
+
+  return "upstream_request_failed";
 }
 
 function buildConversationInput(
@@ -269,7 +295,7 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
 
       throw new CreateChatResponseError({
         cause: error,
-        code: "upstream_request_failed",
+        code: getCreateChatResponseUpstreamErrorCode(error),
         message: getDetailedErrorMessage(error),
       });
     }

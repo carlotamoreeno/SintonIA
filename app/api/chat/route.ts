@@ -6,7 +6,9 @@ import {
   buildInvalidChatRequestPayloadFromZodError,
   chatRequestBodySchema,
   INVALID_CHAT_CONVERSATION_ID_MESSAGE,
+  RATE_LIMITED_CHAT_MESSAGE,
   UPSTREAM_CHAT_ERROR_MESSAGE,
+  UPSTREAM_CHAT_TIMEOUT_MESSAGE,
 } from "@/lib/chat/chat-route";
 import {
   createChatResponse,
@@ -65,6 +67,30 @@ export async function POST(request: Request) {
           conversationId: [INVALID_CHAT_CONVERSATION_ID_MESSAGE],
         }),
         { status: 400 },
+      );
+    }
+
+    if (
+      error instanceof CreateChatResponseError &&
+      error.code === "rate_limited"
+    ) {
+      return NextResponse.json(
+        {
+          message: RATE_LIMITED_CHAT_MESSAGE,
+        },
+        { status: 429 },
+      );
+    }
+
+    if (
+      error instanceof CreateChatResponseError &&
+      error.code === "upstream_timeout"
+    ) {
+      return NextResponse.json(
+        {
+          message: UPSTREAM_CHAT_TIMEOUT_MESSAGE,
+        },
+        { status: 504 },
       );
     }
 
