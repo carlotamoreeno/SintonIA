@@ -11,6 +11,7 @@
     "knowledge:openai:upload": "tsx ./tools/knowledge/upload-document-to-openai.mts",
     "knowledge:vector-store:create": "tsx ./tools/knowledge/create-vector-store-for-dataset.mts",
     "knowledge:vector-store:attach": "tsx ./tools/knowledge/attach-document-to-vector-store.mts",
+    "knowledge:vector-store:reindex:document": "tsx ./tools/knowledge/reindex-knowledge-document.mts",
     "knowledge:manifest:verify": "tsx ./tools/knowledge/verify-initial-manifest.mts",
     "test": "vitest run",
     "typecheck": "next typegen && mkdir -p .next/types && touch .next/types/cache-life.d.ts && npx tsc --noEmit --incremental false",

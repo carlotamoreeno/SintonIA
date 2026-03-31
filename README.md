@@ -62,6 +62,7 @@ npm run lint:fix
 npm run knowledge:openai:upload -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run knowledge:vector-store:create -- --dataset-version <value> [--existing-vector-store-id <id>] [--name <value>]
 npm run knowledge:vector-store:attach -- --dataset-version <value> --doc-id <value> --document-version <value>
+npm run knowledge:vector-store:reindex:document -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run test
 npm run typecheck
 npm run format
@@ -126,6 +127,20 @@ El comando:
 - adjunta el archivo con la estrategia de chunking configurada por entorno y con atributos documentales trazables para retrieval;
 - persiste `status=attached|ready|failed` junto con `vector_store_id`, `last_indexed_at` y `last_error`;
 - intenta borrar el adjunto remoto si la persistencia catalogal falla despues del attach para dejar la fila en un estado reintentable y auditable.
+
+Tambien existe ya el reindexado reproducible por documento sobre un `openai_file_id` existente:
+
+```bash
+npm run knowledge:vector-store:reindex:document -- --dataset-version mvp-2026-03 --doc-id botanica-mvp-v1-corpus-mvp --document-version 1
+```
+
+El comando:
+
+- carga la fila exacta desde `knowledge_documents` y exige que ya exista `openai_file_id`;
+- resuelve el vector store registrado para el `dataset_version`;
+- comprueba si el adjunto actual sigue presente y lo elimina cuando existe;
+- resetea la fila a `status=uploaded` y vuelve a adjuntarla usando el mismo `openai_file_id`;
+- deja trazabilidad en `status`, `vector_store_id`, `last_indexed_at` y `last_error`, con retries acotados ante fallos transitorios del proveedor durante el reattach.
 
 ## Despliegue en Vercel
 
