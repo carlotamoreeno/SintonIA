@@ -19,6 +19,10 @@ type CreateChatResponseClient = Pick<
 type ActiveVectorStore = Awaited<
   ReturnType<CreateChatResponseClient["retrieveVectorStore"]>
 >;
+type PersistedConversationHistory = Exclude<
+  Awaited<ReturnType<ConversationStore["findConversationHistoryForUserById"]>>,
+  null
+>;
 
 export type CreateChatResponseInput = z.input<
   typeof createChatResponseInputSchema
@@ -63,6 +67,8 @@ export type CreateChatResponseDeps = {
     | "createConversationWithFirstUserMessage"
     | "findConversationHistoryForUserById"
   >;
+  maxHistoryTurns: number;
+  maxOutputTokens: number;
   model: string;
   openAI: CreateChatResponseClient;
 };
@@ -125,19 +131,34 @@ function getCreateChatResponseUpstreamErrorCode(
   return "upstream_request_failed";
 }
 
+function getRecentConversationMessages(
+  messages: PersistedConversationHistory["messages"],
+  maxHistoryTurns: number,
+) {
+  if (messages.length <= maxHistoryTurns) {
+    return messages;
+  }
+
+  return messages.slice(-maxHistoryTurns);
+}
+
 function buildConversationInput(
-  history: Awaited<
-    ReturnType<ConversationStore["findConversationHistoryForUserById"]>
-  >,
+  history: PersistedConversationHistory | null,
+  maxHistoryTurns: number,
   message: string,
 ) {
   if (!history || history.messages.length === 0) {
     return message;
   }
 
+  const recentMessages = getRecentConversationMessages(
+    history.messages,
+    maxHistoryTurns,
+  );
+
   return [
     "Conversation history:",
-    ...history.messages.map(
+    ...recentMessages.map(
       (entry) => `${entry.role.toUpperCase()}: ${entry.content}`,
     ),
     "",
@@ -278,7 +299,12 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
 
       response = await deps.openAI.createResponse({
         include: ["file_search_call.results"],
-        input: buildConversationInput(history, parsedInput.message),
+        input: buildConversationInput(
+          history,
+          deps.maxHistoryTurns,
+          parsedInput.message,
+        ),
+        max_output_tokens: deps.maxOutputTokens,
         model: deps.model,
         store: false,
         tools: [

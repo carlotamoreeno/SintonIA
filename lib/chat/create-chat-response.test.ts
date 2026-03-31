@@ -62,6 +62,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -86,6 +88,7 @@ describe("createCreateChatResponse", () => {
     expect(deps.spies.createResponse).toHaveBeenCalledWith({
       include: ["file_search_call.results"],
       input: "Consulta inicial",
+      max_output_tokens: 800,
       model: "gpt-5-nano",
       store: false,
       tools: [
@@ -138,6 +141,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -164,6 +169,7 @@ describe("createCreateChatResponse", () => {
         "",
         "USER: Nueva pregunta",
       ].join("\n"),
+      max_output_tokens: 800,
       model: "gpt-5-nano",
       store: false,
       tools: [
@@ -188,6 +194,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -232,6 +240,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -275,6 +285,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -317,6 +329,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -357,6 +371,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -399,6 +415,8 @@ describe("createCreateChatResponse", () => {
     const createChatResponse = createCreateChatResponse({
       activeVectorStoreId: "vs_active_123",
       conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
       model: "gpt-5-nano",
       openAI: deps.openAI,
     });
@@ -414,5 +432,91 @@ describe("createCreateChatResponse", () => {
         "Active vector store vs_active_123 does not contain any completed files for chat retrieval.",
     });
     expect(deps.spies.createResponse).not.toHaveBeenCalled();
+  });
+
+  it("truncates persisted history to the most recent configured turns in chronological order", async () => {
+    const deps = createDeps();
+    deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce({
+      createdAt: "2026-03-31T12:00:00.000Z",
+      id: "conversation-1",
+      lastMessageAt: "2026-03-31T12:05:00.000Z",
+      messages: [
+        {
+          content: "Mensaje 1",
+          createdAt: "2026-03-31T12:00:00.000Z",
+          id: "message-1",
+          role: "user",
+        },
+        {
+          content: "Mensaje 2",
+          createdAt: "2026-03-31T12:01:00.000Z",
+          id: "message-2",
+          role: "assistant",
+        },
+        {
+          content: "Mensaje 3",
+          createdAt: "2026-03-31T12:02:00.000Z",
+          id: "message-3",
+          role: "user",
+        },
+        {
+          content: "Mensaje 4",
+          createdAt: "2026-03-31T12:03:00.000Z",
+          id: "message-4",
+          role: "assistant",
+        },
+      ],
+      status: "active",
+      title: "Consulta previa",
+      updatedAt: "2026-03-31T12:05:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_789",
+      output_text: "Respuesta truncada",
+    });
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 2,
+      maxOutputTokens: 321,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    const result = await createChatResponse({
+      conversationId: "conversation-1",
+      message: "Nueva pregunta",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.createResponse).toHaveBeenCalledWith({
+      include: ["file_search_call.results"],
+      input: [
+        "Conversation history:",
+        "USER: Mensaje 3",
+        "ASSISTANT: Mensaje 4",
+        "",
+        "USER: Nueva pregunta",
+      ].join("\n"),
+      max_output_tokens: 321,
+      model: "gpt-5-nano",
+      store: false,
+      tools: [
+        {
+          type: "file_search",
+          vector_store_ids: ["vs_active_123"],
+        },
+      ],
+    });
+    expect(result).toEqual({
+      citations: [],
+      conversationId: "conversation-1",
+      grounded: false,
+      messageId: "resp_789",
+      text: "Respuesta truncada",
+    });
   });
 });
