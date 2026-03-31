@@ -5,6 +5,14 @@ import { supabaseAdmin, type SupabaseAdminClient } from "./client";
 
 export const MAX_CONVERSATION_TITLE_LENGTH = 80;
 
+const persistedConversationCitationSchema = z.object({
+  documentId: z.string().min(1),
+  documentName: z.string().min(1),
+  fileId: z.string().min(1),
+  snippet: z.string().min(1),
+  vectorStoreId: z.string().min(1),
+});
+
 const persistedConversationMessageRoleSchema = z.enum([
   "user",
   "assistant",
@@ -12,7 +20,9 @@ const persistedConversationMessageRoleSchema = z.enum([
 ]);
 
 const persistedConversationHistoryMessageSchema = z.object({
+  citations: z.array(persistedConversationCitationSchema).default([]),
   id: z.string().min(1),
+  providerMessageId: z.string().min(1).nullable().default(null),
   role: persistedConversationMessageRoleSchema,
   content: z.string(),
   createdAt: z.string().datetime({ offset: true }),
@@ -39,9 +49,20 @@ const persistedConversationSummaryRowSchema = z.object({
 
 const persistedConversationMessageRowSchema = z.object({
   id: z.string().min(1),
+  provider_message_id: z.string().min(1).nullable(),
   role: persistedConversationMessageRoleSchema,
   content: z.string(),
   created_at: z.string().datetime({ offset: true }),
+});
+
+const persistedConversationCitationRowSchema = z.object({
+  citation_index: z.number().int().nonnegative(),
+  document_id: z.string().min(1),
+  document_name: z.string().min(1),
+  file_id: z.string().min(1),
+  message_id: z.string().min(1),
+  snippet: z.string().min(1),
+  vector_store_id: z.string().min(1),
 });
 
 const createConversationResultSchema = z.object({
@@ -54,9 +75,29 @@ const createConversationResultSchema = z.object({
   last_message_at: z.string().datetime({ offset: true }).nullable(),
 });
 
+const persistAssistantMessageResultSchema = z.object({
+  assistant_created_at: z.string().datetime({ offset: true }),
+  assistant_message_id: z.string().min(1),
+  last_message_at: z.string().datetime({ offset: true }).nullable(),
+});
+
+const persistConversationTurnResultSchema = z.object({
+  assistant_created_at: z.string().datetime({ offset: true }),
+  assistant_message_id: z.string().min(1),
+  last_message_at: z.string().datetime({ offset: true }).nullable(),
+  user_created_at: z.string().datetime({ offset: true }),
+  user_message_id: z.string().min(1),
+});
+
+export type PersistedConversationCitation = z.infer<
+  typeof persistedConversationCitationSchema
+>;
+
 export type PersistedConversationHistoryMessage = z.infer<
   typeof persistedConversationHistoryMessageSchema
->;
+> & {
+  grounded: boolean;
+};
 
 export type PersistedConversationHistoryConversation = {
   createdAt: string;
@@ -78,9 +119,38 @@ export type CreateConversationWithFirstUserMessageResult = {
   updatedAt: string;
 };
 
+export type PersistAssistantMessageResult = {
+  assistantCreatedAt: string;
+  assistantMessageId: string;
+  lastMessageAt: string | null;
+};
+
+export type PersistConversationTurnResult = {
+  assistantCreatedAt: string;
+  assistantMessageId: string;
+  lastMessageAt: string | null;
+  userCreatedAt: string;
+  userMessageId: string;
+};
+
 type ConversationStoreClient = Pick<SupabaseAdminClient, "from" | "rpc">;
 
 export type ConversationStore = {
+  persistAssistantMessageWithCitations(input: {
+    citations: PersistedConversationCitation[];
+    content: string;
+    conversationId: string;
+    providerMessageId: string;
+    userId: string;
+  }): Promise<PersistAssistantMessageResult>;
+  persistConversationTurnWithCitations(input: {
+    assistantContent: string;
+    assistantProviderMessageId: string;
+    citations: PersistedConversationCitation[];
+    conversationId: string;
+    userId: string;
+    userContent: string;
+  }): Promise<PersistConversationTurnResult>;
   createConversationWithFirstUserMessage(input: {
     content: string;
     userId: string;
@@ -111,10 +181,99 @@ export function normalizeConversationTitleFromMessage(
   return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
+function buildPersistedConversationHistoryMessage(input: {
+  citations?: PersistedConversationCitation[];
+  content: string;
+  createdAt: string;
+  id: string;
+  providerMessageId?: string | null;
+  role: z.infer<typeof persistedConversationMessageRoleSchema>;
+}): PersistedConversationHistoryMessage {
+  const message = persistedConversationHistoryMessageSchema.parse({
+    citations: input.citations ?? [],
+    content: input.content,
+    createdAt: input.createdAt,
+    id: input.id,
+    providerMessageId: input.providerMessageId ?? null,
+    role: input.role,
+  });
+
+  return {
+    ...message,
+    grounded: message.citations.length > 0,
+  };
+}
+
 export function createConversationStore(
   client: ConversationStoreClient = supabaseAdmin,
 ): ConversationStore {
   return {
+    async persistAssistantMessageWithCitations({
+      citations,
+      content,
+      conversationId,
+      providerMessageId,
+      userId,
+    }) {
+      const { data, error } = await client
+        .rpc("persist_assistant_message_with_citations", {
+          p_citations: citations,
+          p_content: content,
+          p_conversation_id: conversationId,
+          p_provider_message_id: providerMessageId,
+          p_user_id: userId,
+        })
+        .single();
+
+      if (error || !data) {
+        throw new Error(
+          `Failed to persist assistant chat message: ${error?.message}`,
+        );
+      }
+
+      const result = persistAssistantMessageResultSchema.parse(data);
+
+      return {
+        assistantCreatedAt: result.assistant_created_at,
+        assistantMessageId: result.assistant_message_id,
+        lastMessageAt: result.last_message_at,
+      };
+    },
+
+    async persistConversationTurnWithCitations({
+      assistantContent,
+      assistantProviderMessageId,
+      citations,
+      conversationId,
+      userContent,
+      userId,
+    }) {
+      const { data, error } = await client
+        .rpc("persist_chat_exchange_with_citations", {
+          p_assistant_content: assistantContent,
+          p_assistant_provider_message_id: assistantProviderMessageId,
+          p_citations: citations,
+          p_conversation_id: conversationId,
+          p_user_content: userContent,
+          p_user_id: userId,
+        })
+        .single();
+
+      if (error || !data) {
+        throw new Error(`Failed to persist chat exchange: ${error?.message}`);
+      }
+
+      const result = persistConversationTurnResultSchema.parse(data);
+
+      return {
+        assistantCreatedAt: result.assistant_created_at,
+        assistantMessageId: result.assistant_message_id,
+        lastMessageAt: result.last_message_at,
+        userCreatedAt: result.user_created_at,
+        userMessageId: result.user_message_id,
+      };
+    },
+
     async createConversationWithFirstUserMessage({ userId, content }) {
       const { data, error } = await client
         .rpc("create_conversation_with_first_message", {
@@ -167,7 +326,9 @@ export function createConversationStore(
           createdAt: conversation.created_at,
           updatedAt: conversation.updated_at,
           lastMessageAt: conversation.last_message_at,
-          messages: conversation.messages,
+          messages: conversation.messages.map((message) =>
+            buildPersistedConversationHistoryMessage(message),
+          ),
         }));
     },
 
@@ -191,7 +352,7 @@ export function createConversationStore(
 
       const { data: messageRows, error: messageError } = await client
         .from("messages")
-        .select("id, role, content, created_at")
+        .select("id, role, content, created_at, provider_message_id")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
@@ -203,15 +364,56 @@ export function createConversationStore(
 
       const conversation =
         persistedConversationSummaryRowSchema.parse(conversationRow);
-      const messages = persistedConversationMessageRowSchema
+      const parsedMessages = persistedConversationMessageRowSchema
         .array()
-        .parse(messageRows ?? [])
-        .map((message) => ({
+        .parse(messageRows ?? []);
+      const messageIds = parsedMessages.map((message) => message.id);
+      const citationsByMessageId = new Map<
+        string,
+        PersistedConversationCitation[]
+      >();
+
+      if (messageIds.length > 0) {
+        const { data: citationRows, error: citationError } = await client
+          .from("message_citations")
+          .select(
+            "message_id, citation_index, document_id, document_name, snippet, file_id, vector_store_id",
+          )
+          .in("message_id", messageIds)
+          .order("citation_index", { ascending: true });
+
+        if (citationError) {
+          throw new Error(
+            `Failed to load persisted conversation citations: ${citationError.message}`,
+          );
+        }
+
+        for (const citation of persistedConversationCitationRowSchema
+          .array()
+          .parse(citationRows ?? [])) {
+          const nextCitations =
+            citationsByMessageId.get(citation.message_id) ?? [];
+          nextCitations.push({
+            documentId: citation.document_id,
+            documentName: citation.document_name,
+            fileId: citation.file_id,
+            snippet: citation.snippet,
+            vectorStoreId: citation.vector_store_id,
+          });
+          citationsByMessageId.set(citation.message_id, nextCitations);
+        }
+      }
+
+      const messages = parsedMessages.map((message) =>
+        buildPersistedConversationHistoryMessage({
+          citations: citationsByMessageId.get(message.id) ?? [],
           content: message.content,
           createdAt: message.created_at,
           id: message.id,
+          providerMessageId: message.provider_message_id,
           role: message.role,
-        }));
+        }),
+      );
 
       return {
         id: conversation.id,

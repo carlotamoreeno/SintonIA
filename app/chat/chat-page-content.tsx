@@ -173,10 +173,13 @@ function getDisplayConversationMessages(
   transientMessages: TransientConversationMessage[],
 ): DisplayConversationMessage[] {
   const persistedMessages = conversation.messages.map((message) => ({
+    citations: message.citations,
     content: message.content,
     createdAt: message.createdAt,
     deliveryStatus: "ready" as const,
+    grounded: message.grounded,
     id: message.id,
+    messageId: message.providerMessageId ?? undefined,
     role: message.role,
   }));
 

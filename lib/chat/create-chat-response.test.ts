@@ -3,6 +3,8 @@ import { OpenAIAdapterError } from "@/lib/openai/adapter-core";
 import { createCreateChatResponse } from "./create-chat-response-core";
 
 function createDeps() {
+  const persistAssistantMessageWithCitations = vi.fn();
+  const persistConversationTurnWithCitations = vi.fn();
   const createConversationWithFirstUserMessage = vi.fn();
   const findConversationHistoryForUserById = vi.fn();
   const findDocumentByIdentity = vi.fn();
@@ -14,6 +16,8 @@ function createDeps() {
       findDocumentByIdentity,
     },
     conversationStore: {
+      persistAssistantMessageWithCitations,
+      persistConversationTurnWithCitations,
       createConversationWithFirstUserMessage,
       findConversationHistoryForUserById,
     },
@@ -26,6 +30,8 @@ function createDeps() {
       createResponse,
       findDocumentByIdentity,
       findConversationHistoryForUserById,
+      persistAssistantMessageWithCitations,
+      persistConversationTurnWithCitations,
       retrieveVectorStore,
     },
   };
@@ -105,6 +111,18 @@ describe("createCreateChatResponse", () => {
         },
       ],
     });
+    expect(
+      deps.spies.persistAssistantMessageWithCitations,
+    ).toHaveBeenCalledWith({
+      citations: [],
+      content: "Respuesta inicial",
+      conversationId: "conversation-1",
+      providerMessageId: "resp_123",
+      userId: "user-1",
+    });
+    expect(
+      deps.spies.persistConversationTurnWithCitations,
+    ).not.toHaveBeenCalled();
     expect(result).toEqual({
       citations: [],
       conversationId: "conversation-1",
@@ -188,6 +206,19 @@ describe("createCreateChatResponse", () => {
         },
       ],
     });
+    expect(
+      deps.spies.persistConversationTurnWithCitations,
+    ).toHaveBeenCalledWith({
+      assistantContent: "Seguimos con la consulta",
+      assistantProviderMessageId: "resp_456",
+      citations: [],
+      conversationId: "conversation-1",
+      userContent: "Nueva pregunta",
+      userId: "user-1",
+    });
+    expect(
+      deps.spies.persistAssistantMessageWithCitations,
+    ).not.toHaveBeenCalled();
     expect(result).toEqual({
       citations: [],
       conversationId: "conversation-1",
@@ -220,6 +251,49 @@ describe("createCreateChatResponse", () => {
       code: "conversation_not_found",
     });
     expect(deps.spies.createResponse).not.toHaveBeenCalled();
+  });
+
+  it("fails with a generic upstream error when assistant persistence breaks after the provider succeeds", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_123",
+      output: [],
+      output_text: "Respuesta inicial",
+    });
+    deps.spies.persistAssistantMessageWithCitations.mockRejectedValueOnce(
+      new Error("db write failed"),
+    );
+    const createChatResponse = createCreateChatResponse({
+      activeVectorStoreId: "vs_active_123",
+      catalogStore: deps.catalogStore,
+      conversationStore: deps.conversationStore,
+      maxHistoryTurns: 12,
+      maxOutputTokens: 800,
+      model: "gpt-5-nano",
+      openAI: deps.openAI,
+    });
+
+    await expect(
+      createChatResponse({
+        message: "Consulta inicial",
+        userId: "user-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "upstream_request_failed",
+      message: "db write failed",
+    });
   });
 
   it("builds grounded citations from assistant annotations and file search results", async () => {
@@ -319,6 +393,32 @@ describe("createCreateChatResponse", () => {
       userId: "user-1",
     });
 
+    expect(
+      deps.spies.persistAssistantMessageWithCitations,
+    ).toHaveBeenCalledWith({
+      citations: [
+        {
+          documentId: "botanica-mvp-v1-corpus-mvp",
+          documentName: "Corpus MVP botánico · botanica-mvp-v1",
+          fileId: "file-ASiQHbsz76KbGc6o7WMfE3",
+          snippet:
+            "Botánica es la rama de la biología que estudia las plantas.",
+          vectorStoreId: "vs_active_123",
+        },
+        {
+          documentId: "cuidados-suculentas",
+          documentName: "Guía de suculentas",
+          fileId: "file-succulent-guide",
+          snippet: "Las suculentas almacenan agua en hojas, tallos o raíces.",
+          vectorStoreId: "vs_active_123",
+        },
+      ],
+      content:
+        "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
+      conversationId: "conversation-1",
+      providerMessageId: "resp_grounded",
+      userId: "user-1",
+    });
     expect(result).toEqual({
       citations: [
         {
@@ -1025,6 +1125,16 @@ describe("createCreateChatResponse", () => {
           vector_store_ids: ["vs_active_123"],
         },
       ],
+    });
+    expect(
+      deps.spies.persistConversationTurnWithCitations,
+    ).toHaveBeenCalledWith({
+      assistantContent: "Respuesta truncada",
+      assistantProviderMessageId: "resp_789",
+      citations: [],
+      conversationId: "conversation-1",
+      userContent: "Nueva pregunta",
+      userId: "user-1",
     });
     expect(result).toEqual({
       citations: [],

@@ -102,13 +102,19 @@ describe("ChatPageContent", () => {
             lastMessageAt: "2026-03-19T12:05:00.000Z",
             messages: [
               {
+                citations: [],
                 id: "message-1",
+                grounded: false,
+                providerMessageId: null,
                 role: "user",
                 content: "Primer mensaje persistido",
                 createdAt: "2026-03-19T12:05:00.000Z",
               },
               {
+                citations: [],
                 id: "message-2",
+                grounded: false,
+                providerMessageId: "resp_123",
                 role: "assistant",
                 content: "Respuesta ya leida desde SSR",
                 createdAt: "2026-03-19T12:06:00.000Z",
@@ -176,7 +182,10 @@ describe("ChatPageContent", () => {
             lastMessageAt: "2026-03-19T12:05:00.000Z",
             messages: [
               {
+                citations: [],
                 id: "message-1",
+                grounded: false,
+                providerMessageId: null,
                 role: "user",
                 content: "Primer mensaje persistido",
                 createdAt: "2026-03-19T12:05:00.000Z",
@@ -291,7 +300,10 @@ describe("ChatPageContent", () => {
             lastMessageAt: "2026-03-19T12:05:00.000Z",
             messages: [
               {
+                citations: [],
                 id: "message-1",
+                grounded: false,
+                providerMessageId: null,
                 role: "user",
                 content: "Primer mensaje persistido",
                 createdAt: "2026-03-19T12:05:00.000Z",
@@ -362,7 +374,10 @@ describe("ChatPageContent", () => {
             lastMessageAt: "2026-03-19T12:05:00.000Z",
             messages: [
               {
+                citations: [],
                 id: "message-1",
+                grounded: false,
+                providerMessageId: null,
                 role: "user",
                 content: "Primer mensaje persistido",
                 createdAt: "2026-03-19T12:05:00.000Z",

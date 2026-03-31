@@ -96,6 +96,8 @@ export type CreateChatResponseDeps = {
   catalogStore: Pick<KnowledgeDocumentCatalogStore, "findDocumentByIdentity">;
   conversationStore: Pick<
     ConversationStore,
+    | "persistAssistantMessageWithCitations"
+    | "persistConversationTurnWithCitations"
     | "createConversationWithFirstUserMessage"
     | "findConversationHistoryForUserById"
   >;
@@ -473,10 +475,13 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
   ): Promise<CreateChatResponseResult> {
     const parsedInput = createChatResponseInputSchema.parse(input);
 
+    let isNewConversation = false;
     let resolvedConversationId = parsedInput.conversationId;
     let history = null;
 
     if (!resolvedConversationId) {
+      isNewConversation = true;
+
       try {
         const createdConversation =
           await deps.conversationStore.createConversationWithFirstUserMessage({
@@ -554,13 +559,42 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
       response,
       deps.activeVectorStoreId,
     );
+    const messageId = getResponseId(response);
+    const text = getResponseText(response);
+
+    try {
+      if (isNewConversation) {
+        await deps.conversationStore.persistAssistantMessageWithCitations({
+          citations,
+          content: text,
+          conversationId: resolvedConversationId,
+          providerMessageId: messageId,
+          userId: parsedInput.userId,
+        });
+      } else {
+        await deps.conversationStore.persistConversationTurnWithCitations({
+          assistantContent: text,
+          assistantProviderMessageId: messageId,
+          citations,
+          conversationId: resolvedConversationId,
+          userContent: parsedInput.message,
+          userId: parsedInput.userId,
+        });
+      }
+    } catch (error) {
+      throw new CreateChatResponseError({
+        cause: error,
+        code: "upstream_request_failed",
+        message: getDetailedErrorMessage(error),
+      });
+    }
 
     return {
       citations,
       conversationId: resolvedConversationId,
       grounded: citations.length > 0,
-      messageId: getResponseId(response),
-      text: getResponseText(response),
+      messageId,
+      text,
     };
   };
 }

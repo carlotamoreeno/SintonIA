@@ -374,10 +374,17 @@ async function loadPersistedConversation(input: {
 
   const { data: messages, error: messagesError } = await supabase
     .from("messages")
-    .select("id, role, content")
+    .select("id, role, content, provider_message_id")
     .eq("conversation_id", input.conversationId)
     .order("created_at", { ascending: true })
-    .returns<Array<{ content: string; id: string; role: string }>>();
+    .returns<
+      Array<{
+        content: string;
+        id: string;
+        provider_message_id: string | null;
+        role: string;
+      }>
+    >();
 
   if (messagesError) {
     throw new Error(
@@ -385,9 +392,57 @@ async function loadPersistedConversation(input: {
     );
   }
 
+  const messageIds = (messages ?? []).map((message) => message.id);
+  const citationsByMessageId = new Map<string, ChatCitation[]>();
+
+  if (messageIds.length > 0) {
+    const { data: citationRows, error: citationError } = await supabase
+      .from("message_citations")
+      .select(
+        "message_id, citation_index, document_id, document_name, file_id, snippet, vector_store_id",
+      )
+      .in("message_id", messageIds)
+      .order("citation_index", { ascending: true })
+      .returns<
+        Array<{
+          citation_index: number;
+          document_id: string;
+          document_name: string;
+          file_id: string;
+          message_id: string;
+          snippet: string;
+          vector_store_id: string;
+        }>
+      >();
+
+    if (citationError) {
+      throw new Error(
+        `Failed to load live chat smoke citations: ${citationError.message}`,
+      );
+    }
+
+    for (const citationRow of citationRows ?? []) {
+      const citations = citationsByMessageId.get(citationRow.message_id) ?? [];
+      citations.push({
+        documentId: citationRow.document_id,
+        documentName: citationRow.document_name,
+        fileId: citationRow.file_id,
+        snippet: citationRow.snippet,
+        vectorStoreId: citationRow.vector_store_id,
+      });
+      citationsByMessageId.set(citationRow.message_id, citations);
+    }
+  }
+
   return {
     conversation: conversationRow,
-    messages: messages ?? [],
+    messages: (messages ?? []).map((message) => ({
+      content: message.content,
+      citations: citationsByMessageId.get(message.id) ?? [],
+      id: message.id,
+      providerMessageId: message.provider_message_id,
+      role: message.role,
+    })),
     userId: userRow.id,
   };
 }
@@ -507,9 +562,26 @@ async function main() {
       conversationId: firstChatResponse.json?.conversationId ?? "",
     });
     assert.equal(firstConversationState.conversation?.status, "active");
-    assert.equal(firstConversationState.messages.length, 1);
+    assert.equal(firstConversationState.messages.length, 2);
     assert.equal(firstConversationState.messages[0]?.role, "user");
     assert.equal(firstConversationState.messages[0]?.content, prompt1);
+    assert.equal(firstConversationState.messages[1]?.role, "assistant");
+    assert.equal(
+      firstConversationState.messages[1]?.content,
+      firstChatResponse.json?.text,
+    );
+    assert.equal(
+      firstConversationState.messages[1]?.providerMessageId,
+      firstChatResponse.json?.messageId,
+    );
+    if (firstChatResponse.json?.grounded) {
+      assert.ok(
+        (firstConversationState.messages[1]?.citations.length ?? 0) > 0,
+        "Expected grounded assistant responses to persist citations.",
+      );
+    } else {
+      assert.deepEqual(firstConversationState.messages[1]?.citations ?? [], []);
+    }
 
     const invalidConversation = await requestJson<InvalidPayloadResponse>(
       `${baseUrl}/api/chat`,
@@ -559,8 +631,33 @@ async function main() {
       authSubject,
       conversationId: firstChatResponse.json?.conversationId ?? "",
     });
-    assert.equal(secondConversationState.messages.length, 1);
+    assert.equal(secondConversationState.messages.length, 4);
     assert.equal(secondConversationState.messages[0]?.content, prompt1);
+    assert.equal(
+      secondConversationState.messages[1]?.content,
+      firstChatResponse.json?.text,
+    );
+    assert.equal(secondConversationState.messages[2]?.content, prompt2);
+    assert.equal(secondConversationState.messages[3]?.role, "assistant");
+    assert.equal(
+      secondConversationState.messages[3]?.content,
+      continuedChatResponse.json?.text,
+    );
+    assert.equal(
+      secondConversationState.messages[3]?.providerMessageId,
+      continuedChatResponse.json?.messageId,
+    );
+    if (continuedChatResponse.json?.grounded) {
+      assert.ok(
+        (secondConversationState.messages[3]?.citations.length ?? 0) > 0,
+        "Expected grounded follow-up assistant responses to persist citations.",
+      );
+    } else {
+      assert.deepEqual(
+        secondConversationState.messages[3]?.citations ?? [],
+        [],
+      );
+    }
 
     const chatPage = await fetch(
       `${baseUrl}/chat?conversation=${firstChatResponse.json?.conversationId ?? ""}`,
@@ -577,6 +674,18 @@ async function main() {
       chatPageHtml.includes(prompt1),
       "Expected SSR chat page to include the first persisted user message.",
     );
+    assert.ok(
+      chatPageHtml.includes(firstChatResponse.json?.text ?? ""),
+      "Expected SSR chat page to include the first persisted assistant message.",
+    );
+    assert.ok(
+      chatPageHtml.includes(prompt2),
+      "Expected SSR chat page to include the persisted follow-up user message.",
+    );
+    assert.ok(
+      chatPageHtml.includes(continuedChatResponse.json?.text ?? ""),
+      "Expected SSR chat page to include the persisted follow-up assistant message.",
+    );
 
     console.log(
       JSON.stringify(
@@ -590,8 +699,8 @@ async function main() {
             newConversation200: true,
             continuation200: true,
             ssrChatHydrationVisible: true,
-            firstUserMessagePersisted: true,
-            followUpStillNotPersistedUntilT38: true,
+            firstExchangePersisted: true,
+            followUpPersisted: true,
           },
           conversationId: firstChatResponse.json?.conversationId ?? null,
           firstMessageId: firstChatResponse.json?.messageId ?? null,
