@@ -43,6 +43,7 @@ Semantica actual de los runtime caps:
 - `CHAT_MAX_HISTORY_TURNS` limita a los ultimos mensajes persistidos reenviados al modelo en cada llamada de chat.
 - `CHAT_MAX_OUTPUT_TOKENS` se propaga a Responses API como `max_output_tokens` para acotar la salida generada.
 - `CHAT_RATE_LIMIT_PER_MIN` aplica una ventana fija de 1 minuto por `user.id` persistido en `POST /api/chat`.
+- Los tres caps de tamano/contexto pueden reducirse por entorno, pero no superar los topes comprometidos del MVP: `4000` caracteres, `12` mensajes persistidos y `800` tokens de salida.
 
 Notas de auth del slice actual:
 

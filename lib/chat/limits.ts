@@ -1,0 +1,3 @@
+export const MAX_CHAT_MESSAGE_CHARS = 4000;
+export const MAX_CHAT_HISTORY_TURNS = 12;
+export const MAX_CHAT_OUTPUT_TOKENS = 800;

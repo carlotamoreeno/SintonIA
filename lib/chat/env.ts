@@ -1,10 +1,15 @@
 import "server-only";
 
 import { z } from "zod";
+import {
+  MAX_CHAT_HISTORY_TURNS,
+  MAX_CHAT_MESSAGE_CHARS,
+  MAX_CHAT_OUTPUT_TOKENS,
+} from "./limits";
 
-export const DEFAULT_CHAT_MAX_MESSAGE_CHARS = 4000;
-export const DEFAULT_CHAT_MAX_HISTORY_TURNS = 12;
-export const DEFAULT_CHAT_MAX_OUTPUT_TOKENS = 800;
+export const DEFAULT_CHAT_MAX_MESSAGE_CHARS = MAX_CHAT_MESSAGE_CHARS;
+export const DEFAULT_CHAT_MAX_HISTORY_TURNS = MAX_CHAT_HISTORY_TURNS;
+export const DEFAULT_CHAT_MAX_OUTPUT_TOKENS = MAX_CHAT_OUTPUT_TOKENS;
 export const DEFAULT_CHAT_RATE_LIMIT_PER_MIN = 20;
 
 const chatRuntimeEnvSchema = z.object({
@@ -12,16 +17,28 @@ const chatRuntimeEnvSchema = z.object({
     .number()
     .int()
     .positive()
+    .max(
+      MAX_CHAT_HISTORY_TURNS,
+      `CHAT_MAX_HISTORY_TURNS must not exceed ${MAX_CHAT_HISTORY_TURNS}.`,
+    )
     .default(DEFAULT_CHAT_MAX_HISTORY_TURNS),
   CHAT_MAX_MESSAGE_CHARS: z.coerce
     .number()
     .int()
     .positive()
+    .max(
+      MAX_CHAT_MESSAGE_CHARS,
+      `CHAT_MAX_MESSAGE_CHARS must not exceed ${MAX_CHAT_MESSAGE_CHARS}.`,
+    )
     .default(DEFAULT_CHAT_MAX_MESSAGE_CHARS),
   CHAT_MAX_OUTPUT_TOKENS: z.coerce
     .number()
     .int()
     .positive()
+    .max(
+      MAX_CHAT_OUTPUT_TOKENS,
+      `CHAT_MAX_OUTPUT_TOKENS must not exceed ${MAX_CHAT_OUTPUT_TOKENS}.`,
+    )
     .default(DEFAULT_CHAT_MAX_OUTPUT_TOKENS),
   CHAT_RATE_LIMIT_PER_MIN: z.coerce
     .number()

@@ -6,6 +6,11 @@ import {
   DEFAULT_CHAT_RATE_LIMIT_PER_MIN,
   parseChatRuntimeEnv,
 } from "./env";
+import {
+  MAX_CHAT_HISTORY_TURNS,
+  MAX_CHAT_MESSAGE_CHARS,
+  MAX_CHAT_OUTPUT_TOKENS,
+} from "./limits";
 
 describe("parseChatRuntimeEnv", () => {
   it("returns the documented defaults when runtime caps are omitted", () => {
@@ -45,6 +50,30 @@ describe("parseChatRuntimeEnv", () => {
     expect(() =>
       parseChatRuntimeEnv({
         CHAT_MAX_OUTPUT_TOKENS: "-1",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects history caps above the committed maximum", () => {
+    expect(() =>
+      parseChatRuntimeEnv({
+        CHAT_MAX_HISTORY_TURNS: String(MAX_CHAT_HISTORY_TURNS + 1),
+      }),
+    ).toThrow();
+  });
+
+  it("rejects message caps above the committed maximum", () => {
+    expect(() =>
+      parseChatRuntimeEnv({
+        CHAT_MAX_MESSAGE_CHARS: String(MAX_CHAT_MESSAGE_CHARS + 1),
+      }),
+    ).toThrow();
+  });
+
+  it("rejects output caps above the committed maximum", () => {
+    expect(() =>
+      parseChatRuntimeEnv({
+        CHAT_MAX_OUTPUT_TOKENS: String(MAX_CHAT_OUTPUT_TOKENS + 1),
       }),
     ).toThrow();
   });

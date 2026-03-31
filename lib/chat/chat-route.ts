@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_CHAT_MAX_MESSAGE_CHARS } from "./env";
+import { MAX_CHAT_MESSAGE_CHARS } from "./limits";
 
 export const INVALID_CHAT_REQUEST_MESSAGE = "Invalid request payload";
 export const INVALID_CHAT_CONVERSATION_ID_MESSAGE = "Invalid conversationId.";
@@ -19,8 +19,8 @@ export const chatRequestBodySchema = z.object({
     .trim()
     .min(1, "Message must not be empty.")
     .max(
-      DEFAULT_CHAT_MAX_MESSAGE_CHARS,
-      `Message must not exceed ${DEFAULT_CHAT_MAX_MESSAGE_CHARS} characters.`,
+      MAX_CHAT_MESSAGE_CHARS,
+      `Message must not exceed ${MAX_CHAT_MESSAGE_CHARS} characters.`,
     ),
 });
 
