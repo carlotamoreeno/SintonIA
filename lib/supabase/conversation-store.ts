@@ -28,6 +28,22 @@ const persistedConversationHistoryRowSchema = z.object({
   messages: z.array(persistedConversationHistoryMessageSchema).default([]),
 });
 
+const persistedConversationSummaryRowSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().nullable(),
+  status: z.string().min(1),
+  created_at: z.string().datetime({ offset: true }),
+  updated_at: z.string().datetime({ offset: true }),
+  last_message_at: z.string().datetime({ offset: true }).nullable(),
+});
+
+const persistedConversationMessageRowSchema = z.object({
+  id: z.string().min(1),
+  role: persistedConversationMessageRoleSchema,
+  content: z.string(),
+  created_at: z.string().datetime({ offset: true }),
+});
+
 const createConversationResultSchema = z.object({
   conversation_id: z.string().min(1),
   message_id: z.string().min(1),
@@ -62,13 +78,17 @@ export type CreateConversationWithFirstUserMessageResult = {
   updatedAt: string;
 };
 
-type ConversationStoreClient = Pick<SupabaseAdminClient, "rpc">;
+type ConversationStoreClient = Pick<SupabaseAdminClient, "from" | "rpc">;
 
 export type ConversationStore = {
   createConversationWithFirstUserMessage(input: {
     content: string;
     userId: string;
   }): Promise<CreateConversationWithFirstUserMessageResult>;
+  findConversationHistoryForUserById(
+    userId: string,
+    conversationId: string,
+  ): Promise<PersistedConversationHistoryConversation | null>;
   listConversationHistoryForUser(
     userId: string,
   ): Promise<PersistedConversationHistoryConversation[]>;
@@ -149,6 +169,59 @@ export function createConversationStore(
           lastMessageAt: conversation.last_message_at,
           messages: conversation.messages,
         }));
+    },
+
+    async findConversationHistoryForUserById(userId, conversationId) {
+      const { data: conversationRow, error: conversationError } = await client
+        .from("conversations")
+        .select("id, title, status, created_at, updated_at, last_message_at")
+        .eq("id", conversationId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (conversationError) {
+        throw new Error(
+          `Failed to load persisted conversation: ${conversationError.message}`,
+        );
+      }
+
+      if (!conversationRow) {
+        return null;
+      }
+
+      const { data: messageRows, error: messageError } = await client
+        .from("messages")
+        .select("id, role, content, created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+
+      if (messageError) {
+        throw new Error(
+          `Failed to load persisted conversation messages: ${messageError.message}`,
+        );
+      }
+
+      const conversation =
+        persistedConversationSummaryRowSchema.parse(conversationRow);
+      const messages = persistedConversationMessageRowSchema
+        .array()
+        .parse(messageRows ?? [])
+        .map((message) => ({
+          content: message.content,
+          createdAt: message.created_at,
+          id: message.id,
+          role: message.role,
+        }));
+
+      return {
+        id: conversation.id,
+        title: conversation.title,
+        status: conversation.status,
+        createdAt: conversation.created_at,
+        updatedAt: conversation.updated_at,
+        lastMessageAt: conversation.last_message_at,
+        messages,
+      };
     },
   };
 }
