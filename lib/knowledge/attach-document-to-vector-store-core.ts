@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   OpenAIAdapterError,
   type OpenAIAdapter,
+  type OpenAIVectorStoreFileChunkingStrategy,
   type OpenAIVectorStoreFileCreateResult,
   type OpenAIVectorStoreFilePollResult,
 } from "@/lib/openai/adapter-core";
@@ -50,6 +51,7 @@ export type AttachKnowledgeDocumentToVectorStoreResult = {
   };
   vectorStore: {
     attributes: Record<string, string | number | boolean>;
+    chunkingStrategy: OpenAIVectorStoreFileChunkingStrategy;
     fileId: string;
     id: string;
     lastIndexedAt: string;
@@ -69,6 +71,7 @@ export type AttachKnowledgeDocumentToVectorStoreDeps = {
     KnowledgeVectorStoreRegistrationStore,
     "findByDatasetVersion"
   >;
+  vectorStoreFileChunkingStrategy: OpenAIVectorStoreFileChunkingStrategy;
 };
 
 export type AttachKnowledgeDocumentToVectorStoreErrorCode =
@@ -575,6 +578,7 @@ export function createAttachKnowledgeDocumentToVectorStore(
         vectorStoreRegistration.vectorStoreId,
         {
           attributes: vectorStoreAttributes,
+          chunking_strategy: deps.vectorStoreFileChunkingStrategy,
           file_id: document.openAIFileId,
         },
       );
@@ -741,6 +745,7 @@ export function createAttachKnowledgeDocumentToVectorStore(
       },
       vectorStore: {
         attributes: vectorStoreAttributes,
+        chunkingStrategy: deps.vectorStoreFileChunkingStrategy,
         fileId: vectorStoreFileId,
         id: vectorStoreRegistration.vectorStoreId,
         lastIndexedAt,

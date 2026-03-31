@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAttachKnowledgeDocumentToVectorStore } from "./attach-document-to-vector-store-core";
+import type { OpenAIVectorStoreFileChunkingStrategy } from "@/lib/openai/adapter-core";
 
 function createCatalogDocument(overrides?: Record<string, unknown>) {
   return {
@@ -37,7 +38,11 @@ function createRegistration(overrides?: Record<string, unknown>) {
   };
 }
 
-function createDeps() {
+function createDeps(
+  vectorStoreFileChunkingStrategy: OpenAIVectorStoreFileChunkingStrategy = {
+    type: "auto",
+  },
+) {
   const findDocumentByIdentity = vi
     .fn()
     .mockResolvedValue(createCatalogDocument());
@@ -78,6 +83,7 @@ function createDeps() {
     registryStore: {
       findByDatasetVersion,
     },
+    vectorStoreFileChunkingStrategy,
     spies: {
       createVectorStoreFile,
       deleteVectorStoreFile,
@@ -124,6 +130,9 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         mime_type: "application/pdf",
         title: "Corpus botánico de prueba",
       },
+      chunking_strategy: {
+        type: "auto",
+      },
       file_id: "file_uploaded_123",
     });
     expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(1, {
@@ -165,6 +174,9 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
           document_version: 1,
           mime_type: "application/pdf",
           title: "Corpus botánico de prueba",
+        },
+        chunkingStrategy: {
+          type: "auto",
         },
         fileId: "file_uploaded_123",
         id: "vs_123",
@@ -224,6 +236,9 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         custom_cultivation_zone: 9,
         custom_internal: false,
       },
+      chunking_strategy: {
+        type: "auto",
+      },
       file_id: "file_uploaded_123",
     });
     expect(result.vectorStore.attributes).toEqual({
@@ -235,6 +250,63 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       custom_audience_level: "principiantes",
       custom_cultivation_zone: 9,
       custom_internal: false,
+    });
+  });
+
+  it("passes a static chunking strategy through the attach flow and surfaces it in the result", async () => {
+    const deps = createDeps({
+      type: "static",
+      static: {
+        chunk_overlap_tokens: 128,
+        max_chunk_size_tokens: 512,
+      },
+    });
+    deps.spies.recordVectorStoreIndexResult
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          status: "attached",
+          vectorStoreId: "vs_123",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createCatalogDocument({
+          lastIndexedAt: "2026-03-31T09:10:00.000Z",
+          status: "ready",
+          vectorStoreId: "vs_123",
+        }),
+      );
+    const attachKnowledgeDocumentToVectorStore =
+      createAttachKnowledgeDocumentToVectorStore(deps);
+
+    const result = await attachKnowledgeDocumentToVectorStore({
+      datasetVersion: "mvp-2026-03",
+      docId: "botanica-mvp-v1-corpus-mvp",
+      documentVersion: 1,
+    });
+
+    expect(deps.spies.createVectorStoreFile).toHaveBeenCalledWith("vs_123", {
+      attributes: {
+        dataset_version: "mvp-2026-03",
+        doc_id: "botanica-mvp-v1-corpus-mvp",
+        document_version: 1,
+        mime_type: "application/pdf",
+        title: "Corpus botánico de prueba",
+      },
+      chunking_strategy: {
+        type: "static",
+        static: {
+          chunk_overlap_tokens: 128,
+          max_chunk_size_tokens: 512,
+        },
+      },
+      file_id: "file_uploaded_123",
+    });
+    expect(result.vectorStore.chunkingStrategy).toEqual({
+      type: "static",
+      static: {
+        chunk_overlap_tokens: 128,
+        max_chunk_size_tokens: 512,
+      },
     });
   });
 

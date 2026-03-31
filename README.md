@@ -32,7 +32,7 @@ La plantilla versionada es [`.env.example`](./.env.example) e incluye estas fami
 - Aplicacion: `NODE_ENV`, `APP_BASE_URL`, `ACTIVE_DATASET_VERSION`
 - Auth: `AUTH_SECRET`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_EXPERT_EMAILS`, `AUTH_ADMIN_EMAILS`
 - Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_ACTIVE_VECTOR_STORE_ID`, `OPENAI_TIMEOUT_MS`
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_ACTIVE_VECTOR_STORE_ID`, `OPENAI_TIMEOUT_MS`, `OPENAI_VECTOR_STORE_FILE_CHUNKING_STRATEGY`, `OPENAI_VECTOR_STORE_FILE_MAX_CHUNK_SIZE_TOKENS`, `OPENAI_VECTOR_STORE_FILE_CHUNK_OVERLAP_TOKENS`
 - Runtime caps: `CHAT_MAX_MESSAGE_CHARS`, `CHAT_MAX_HISTORY_TURNS`, `CHAT_MAX_OUTPUT_TOKENS`, `CHAT_RATE_LIMIT_PER_MIN`
 
 Los valores por defecto de la plantilla reflejan los limites actuales definidos en el MVP.
@@ -47,6 +47,9 @@ Notas de OpenAI del slice actual:
 
 - `OPENAI_MODEL` usa `gpt-5-nano` como default server-only del MVP cuando no se define explicitamente.
 - `OPENAI_ACTIVE_VECTOR_STORE_ID` es obligatorio y debe apuntar al vector store activo del entorno.
+- `OPENAI_VECTOR_STORE_FILE_CHUNKING_STRATEGY` admite `auto` o `static`; el default actual es `auto`.
+- `OPENAI_VECTOR_STORE_FILE_MAX_CHUNK_SIZE_TOKENS` y `OPENAI_VECTOR_STORE_FILE_CHUNK_OVERLAP_TOKENS` solo deben definirse cuando la estrategia es `static`.
+- En `static`, `max_chunk_size_tokens` debe estar entre `100` y `4096`, y `chunk_overlap_tokens` no puede superar la mitad de `max_chunk_size_tokens`.
 
 ## Scripts de trabajo
 
@@ -120,7 +123,7 @@ El comando:
 
 - exige que la fila ya tenga `openai_file_id`;
 - resuelve el vector store desde `knowledge_vector_store_registry`;
-- adjunta el archivo con atributos minimos `{ doc_id, dataset_version, document_version }`;
+- adjunta el archivo con la estrategia de chunking configurada por entorno y con atributos documentales trazables para retrieval;
 - persiste `status=attached|ready|failed` junto con `vector_store_id`, `last_indexed_at` y `last_error`;
 - intenta borrar el adjunto remoto si la persistencia catalogal falla despues del attach para dejar la fila en un estado reintentable y auditable.
 

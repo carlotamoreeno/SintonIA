@@ -18,6 +18,9 @@ vi.mock("./env", () => ({
     apiKey: "sk-test-key",
     model: "gpt-5-nano",
     timeoutMs: 45000,
+    vectorStoreFileChunkingStrategy: {
+      type: "auto",
+    },
   },
 }));
 

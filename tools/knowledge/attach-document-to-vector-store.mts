@@ -2,6 +2,7 @@ process.loadEnvFile?.();
 
 const { createOpenAIAdapter } = await import("../../lib/openai/adapter-core");
 const { createOpenAIClient } = await import("../../lib/openai/client-core");
+const { parseOpenAIServerEnv } = await import("../../lib/openai/env-core");
 const { createAttachKnowledgeDocumentToVectorStore } =
   await import("../../lib/knowledge/attach-document-to-vector-store-core");
 const { createSupabaseAdminClient } =
@@ -15,14 +16,15 @@ const { formatErrorPayload, parseCliArgs } =
 
 async function main() {
   const input = parseCliArgs(process.argv.slice(2));
+  const openAIEnv = parseOpenAIServerEnv(process.env);
   const supabase = createSupabaseAdminClient({
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   });
   const openAI = createOpenAIAdapter(
     createOpenAIClient({
-      apiKey: process.env.OPENAI_API_KEY ?? "",
-      timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? "30000"),
+      apiKey: openAIEnv.apiKey,
+      timeoutMs: openAIEnv.timeoutMs,
     }),
   );
   const attachKnowledgeDocumentToVectorStore =
@@ -30,6 +32,8 @@ async function main() {
       catalogStore: createKnowledgeDocumentCatalogStore(supabase),
       openAI,
       registryStore: createKnowledgeVectorStoreRegistrationStore(supabase),
+      vectorStoreFileChunkingStrategy:
+        openAIEnv.vectorStoreFileChunkingStrategy,
     });
   const result = await attachKnowledgeDocumentToVectorStore(input);
 

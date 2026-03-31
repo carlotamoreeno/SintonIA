@@ -64,6 +64,9 @@ export type OpenAIVectorStoreFileCreateOptions = Parameters<
 export type OpenAIVectorStoreFileCreateResult = Awaited<
   ReturnType<OpenAI["vectorStores"]["files"]["create"]>
 >;
+export type OpenAIVectorStoreFileChunkingStrategy = NonNullable<
+  OpenAIVectorStoreFileCreateParams["chunking_strategy"]
+>;
 export type OpenAIVectorStoreFileDeleteOptions = Parameters<
   OpenAI["vectorStores"]["files"]["delete"]
 >[2];
