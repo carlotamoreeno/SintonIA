@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAttachKnowledgeDocumentToVectorStore } from "./attach-document-to-vector-store-core";
-import type { OpenAIVectorStoreFileChunkingStrategy } from "@/lib/openai/adapter-core";
+import {
+  OpenAIAdapterError,
+  type OpenAIVectorStoreFileChunkingStrategy,
+} from "@/lib/openai/adapter-core";
 
 function createCatalogDocument(overrides?: Record<string, unknown>) {
   return {
@@ -46,7 +49,7 @@ function createDeps(
   const findDocumentByIdentity = vi
     .fn()
     .mockResolvedValue(createCatalogDocument());
-  const recordVectorStoreIndexResult = vi.fn();
+  const recordIndexingState = vi.fn();
   const findByDatasetVersion = vi.fn().mockResolvedValue(createRegistration());
   const createVectorStoreFile = vi.fn().mockResolvedValue({
     _request_id: "req_attach_123",
@@ -73,7 +76,7 @@ function createDeps(
   return {
     catalogStore: {
       findDocumentByIdentity,
-      recordVectorStoreIndexResult,
+      recordIndexingState,
     },
     openAI: {
       createVectorStoreFile,
@@ -90,7 +93,7 @@ function createDeps(
       findByDatasetVersion,
       findDocumentByIdentity,
       pollVectorStoreFile,
-      recordVectorStoreIndexResult,
+      recordIndexingState,
     },
   };
 }
@@ -98,7 +101,7 @@ function createDeps(
 describe("createAttachKnowledgeDocumentToVectorStore", () => {
   it("attaches a previously uploaded file, polls it to completion and records the ready status", async () => {
     const deps = createDeps();
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockResolvedValueOnce(
         createCatalogDocument({
           status: "attached",
@@ -135,12 +138,13 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       },
       file_id: "file_uploaded_123",
     });
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(1, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(1, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError: null,
       lastIndexedAt: null,
+      openAIFileId: "file_uploaded_123",
       status: "attached",
       vectorStoreId: "vs_123",
     });
@@ -148,12 +152,13 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       "vs_123",
       "file_uploaded_123",
     );
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError: null,
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "ready",
       vectorStoreId: "vs_123",
     });
@@ -202,7 +207,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         },
       }),
     );
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockResolvedValueOnce(
         createCatalogDocument({
           status: "attached",
@@ -253,6 +258,62 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
     });
   });
 
+  it("retries a transient 404 while the freshly attached vector store file becomes visible", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const deps = createDeps();
+      deps.spies.recordIndexingState
+        .mockResolvedValueOnce(
+          createCatalogDocument({
+            status: "attached",
+            vectorStoreId: "vs_123",
+          }),
+        )
+        .mockResolvedValueOnce(
+          createCatalogDocument({
+            lastIndexedAt: "2026-03-31T09:10:00.000Z",
+            status: "ready",
+            vectorStoreId: "vs_123",
+          }),
+        );
+      deps.spies.pollVectorStoreFile
+        .mockRejectedValueOnce(
+          new OpenAIAdapterError({
+            cause: new Error("not-found"),
+            message: "404 No file found yet.",
+            retryable: false,
+            status: 404,
+          }),
+        )
+        .mockResolvedValueOnce({
+          _request_id: "req_poll_retry_123",
+          id: "file_uploaded_123",
+          last_error: null,
+          object: "vector_store.file",
+          status: "completed",
+          vector_store_id: "vs_123",
+          usage_bytes: 2048,
+        });
+      const attachKnowledgeDocumentToVectorStore =
+        createAttachKnowledgeDocumentToVectorStore(deps);
+
+      const resultPromise = attachKnowledgeDocumentToVectorStore({
+        datasetVersion: "mvp-2026-03",
+        docId: "botanica-mvp-v1-corpus-mvp",
+        documentVersion: 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await resultPromise;
+
+      expect(deps.spies.pollVectorStoreFile).toHaveBeenCalledTimes(2);
+      expect(result.vectorStore.requestId).toBe("req_poll_retry_123");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("passes a static chunking strategy through the attach flow and surfaces it in the result", async () => {
     const deps = createDeps({
       type: "static",
@@ -261,7 +322,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         max_chunk_size_tokens: 512,
       },
     });
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockResolvedValueOnce(
         createCatalogDocument({
           status: "attached",
@@ -377,7 +438,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
 
   it("records a failed terminal status when OpenAI finishes the attachment unsuccessfully", async () => {
     const deps = createDeps();
-    deps.spies.recordVectorStoreIndexResult.mockResolvedValueOnce(
+    deps.spies.recordIndexingState.mockResolvedValueOnce(
       createCatalogDocument({
         status: "attached",
         vectorStoreId: "vs_123",
@@ -394,7 +455,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       vector_store_id: "vs_123",
       usage_bytes: 0,
     });
-    deps.spies.recordVectorStoreIndexResult.mockResolvedValueOnce(
+    deps.spies.recordIndexingState.mockResolvedValueOnce(
       createCatalogDocument({
         lastError:
           "Vector store file file_uploaded_123 finished with status failed. invalid_file: The file could not be processed.",
@@ -420,13 +481,14 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       vectorStoreFileId: "file_uploaded_123",
       vectorStoreId: "vs_123",
     });
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Vector store file file_uploaded_123 finished with status failed. invalid_file: The file could not be processed.",
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: "vs_123",
     });
@@ -434,7 +496,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
 
   it("deletes the remote vector store file and records a retryable failed state when the attached status cannot be persisted", async () => {
     const deps = createDeps();
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockResolvedValueOnce(
         createCatalogDocument({
@@ -465,13 +527,14 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       "vs_123",
       "file_uploaded_123",
     );
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Vector store file file_uploaded_123 for vector store vs_123 could not be recorded as attached in knowledge_documents: catalog-write-failed. Remote vector store file deleted and catalog row marked as failed for retry.",
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: null,
     });
@@ -482,7 +545,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
     deps.spies.deleteVectorStoreFile.mockRejectedValue(
       new Error("delete-boom"),
     );
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockResolvedValueOnce(
         createCatalogDocument({
@@ -507,13 +570,14 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
         "Vector store file file_uploaded_123 for vector store vs_123 could not be recorded as attached in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with vector_store_id preserved for traceability. Manual cleanup is still required.",
       vectorStoreId: "vs_123",
     });
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Vector store file file_uploaded_123 for vector store vs_123 could not be recorded as attached in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with vector_store_id preserved for traceability. Manual cleanup is still required.",
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: "vs_123",
     });
@@ -522,7 +586,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
   it("recovers with cleanup when recording a failed poll result also fails", async () => {
     const deps = createDeps();
     deps.spies.pollVectorStoreFile.mockRejectedValue(new Error("poll-boom"));
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockResolvedValueOnce(
         createCatalogDocument({
           status: "attached",
@@ -556,13 +620,14 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       "vs_123",
       "file_uploaded_123",
     );
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(3, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(3, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Vector store file file_uploaded_123 for vector store vs_123 could not be recorded as failed in knowledge_documents: failed-write-boom. Remote vector store file deleted and catalog row marked as failed for retry.",
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: null,
     });
@@ -570,7 +635,7 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
 
   it("recovers with a failed state when the ready status cannot be persisted after successful indexing", async () => {
     const deps = createDeps();
-    deps.spies.recordVectorStoreIndexResult
+    deps.spies.recordIndexingState
       .mockResolvedValueOnce(
         createCatalogDocument({
           status: "attached",
@@ -604,13 +669,14 @@ describe("createAttachKnowledgeDocumentToVectorStore", () => {
       "vs_123",
       "file_uploaded_123",
     );
-    expect(deps.spies.recordVectorStoreIndexResult).toHaveBeenNthCalledWith(3, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(3, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Vector store file file_uploaded_123 for vector store vs_123 could not be recorded as ready in knowledge_documents: ready-write-failed. Remote vector store file deleted and catalog row marked as failed for retry.",
       lastIndexedAt: expect.any(String),
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: null,
     });

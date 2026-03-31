@@ -11,7 +11,6 @@ import {
 import type {
   KnowledgeDocumentCatalogDocument,
   KnowledgeDocumentCatalogStore,
-  KnowledgeDocumentCatalogStatus,
 } from "@/lib/supabase/knowledge-document-store-core";
 
 const uploadKnowledgeDocumentToOpenAIInputSchema =
@@ -60,7 +59,7 @@ export type UploadKnowledgeDocumentToOpenAIResult = {
     documentVersion: number;
     mimeType: string;
     originalFilename: string;
-    status: Extract<KnowledgeDocumentCatalogStatus, "uploaded">;
+    status: "uploaded";
   };
   openAIFile: {
     bytes: number;
@@ -79,7 +78,7 @@ export type UploadKnowledgeDocumentToOpenAIResult = {
 export type UploadKnowledgeDocumentToOpenAIDeps = {
   catalogStore: Pick<
     KnowledgeDocumentCatalogStore,
-    "findDocumentByIdentity" | "recordOpenAIUploadResult"
+    "findDocumentByIdentity" | "recordIndexingState"
   >;
   openAI: UploadKnowledgeDocumentToOpenAIClient;
   supabase: UploadKnowledgeDocumentStorageClient;
@@ -351,13 +350,15 @@ async function recordFailedUpload(
   openAIFileId: string | null,
 ) {
   try {
-    await catalogStore.recordOpenAIUploadResult({
+    await catalogStore.recordIndexingState({
       datasetVersion: document.datasetVersion,
       docId: document.docId,
       documentVersion: document.documentVersion,
       lastError: uploadError.message,
+      lastIndexedAt: document.lastIndexedAt,
       openAIFileId,
       status: "failed",
+      vectorStoreId: document.vectorStoreId,
     });
   } catch (error) {
     throw createCatalogRecordFailureError(error, openAIFileId, uploadError);
@@ -409,13 +410,15 @@ async function recoverFromSuccessfulUploadCatalogFailure(input: {
   let recoveryError: unknown | null = null;
 
   try {
-    await input.catalogStore.recordOpenAIUploadResult({
+    await input.catalogStore.recordIndexingState({
       datasetVersion: input.document.datasetVersion,
       docId: input.document.docId,
       documentVersion: input.document.documentVersion,
       lastError: recoveryLastError,
+      lastIndexedAt: input.document.lastIndexedAt,
       openAIFileId: recoveredCatalogOpenAIFileId,
       status: "failed",
+      vectorStoreId: input.document.vectorStoreId,
     });
   } catch (error) {
     recoveryError = error;
@@ -489,13 +492,15 @@ export function createUploadKnowledgeDocumentToOpenAI(
     let updatedDocument: KnowledgeDocumentCatalogDocument;
 
     try {
-      updatedDocument = await deps.catalogStore.recordOpenAIUploadResult({
+      updatedDocument = await deps.catalogStore.recordIndexingState({
         datasetVersion: document.datasetVersion,
         docId: document.docId,
         documentVersion: document.documentVersion,
         lastError: null,
+        lastIndexedAt: null,
         openAIFileId,
         status: "uploaded",
+        vectorStoreId: null,
       });
     } catch (catalogError) {
       const recovery = await recoverFromSuccessfulUploadCatalogFailure({

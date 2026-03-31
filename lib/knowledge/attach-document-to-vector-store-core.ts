@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import {
   OpenAIAdapterError,
@@ -64,7 +65,7 @@ export type AttachKnowledgeDocumentToVectorStoreResult = {
 export type AttachKnowledgeDocumentToVectorStoreDeps = {
   catalogStore: Pick<
     KnowledgeDocumentCatalogStore,
-    "findDocumentByIdentity" | "recordVectorStoreIndexResult"
+    "findDocumentByIdentity" | "recordIndexingState"
   >;
   openAI: AttachKnowledgeDocumentToVectorStoreClient;
   registryStore: Pick<
@@ -120,6 +121,9 @@ type FailedIndexRecoveryResult = {
   remoteVectorStoreFileDeleted: boolean;
 };
 
+const VECTOR_STORE_POLL_NOT_FOUND_RETRY_LIMIT = 12;
+const VECTOR_STORE_POLL_NOT_FOUND_RETRY_DELAY_MS = 1_000;
+
 function getCurrentTimestamp() {
   return new Date().toISOString();
 }
@@ -169,6 +173,17 @@ function getRequestId(value: unknown) {
   }
 
   return null;
+}
+
+function shouldRetryMissingVectorStoreFilePoll(
+  error: unknown,
+  attempt: number,
+): error is OpenAIAdapterError {
+  return (
+    error instanceof OpenAIAdapterError &&
+    error.status === 404 &&
+    attempt < VECTOR_STORE_POLL_NOT_FOUND_RETRY_LIMIT
+  );
 }
 
 function getVectorStoreFileId(
@@ -383,6 +398,27 @@ async function deleteVectorStoreFile(
   }
 }
 
+async function pollVectorStoreFileWithRetry(
+  openAI: AttachKnowledgeDocumentToVectorStoreDeps["openAI"],
+  vectorStoreId: string,
+  vectorStoreFileId: string,
+) {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      return await openAI.pollVectorStoreFile(vectorStoreId, vectorStoreFileId);
+    } catch (error) {
+      if (!shouldRetryMissingVectorStoreFilePoll(error, attempt)) {
+        throw error;
+      }
+
+      attempt += 1;
+      await sleep(VECTOR_STORE_POLL_NOT_FOUND_RETRY_DELAY_MS);
+    }
+  }
+}
+
 async function recordFailedIndexResult(
   catalogStore: AttachKnowledgeDocumentToVectorStoreDeps["catalogStore"],
   document: AttachableKnowledgeDocument,
@@ -394,12 +430,13 @@ async function recordFailedIndexResult(
   attachError: AttachKnowledgeDocumentToVectorStoreError,
 ) {
   try {
-    await catalogStore.recordVectorStoreIndexResult({
+    await catalogStore.recordIndexingState({
       datasetVersion: document.datasetVersion,
       docId: document.docId,
       documentVersion: document.documentVersion,
       lastError: input.lastError,
       lastIndexedAt: input.lastIndexedAt,
+      openAIFileId: document.openAIFileId,
       status: "failed",
       vectorStoreId: input.vectorStoreId,
     });
@@ -421,12 +458,13 @@ async function recordFailedIndexResultWithRecovery(input: {
   vectorStoreId: string;
 }) {
   try {
-    await input.catalogStore.recordVectorStoreIndexResult({
+    await input.catalogStore.recordIndexingState({
       datasetVersion: input.document.datasetVersion,
       docId: input.document.docId,
       documentVersion: input.document.documentVersion,
       lastError: input.lastError,
       lastIndexedAt: input.lastIndexedAt,
+      openAIFileId: input.document.openAIFileId,
       status: "failed",
       vectorStoreId: input.vectorStoreId,
     });
@@ -494,12 +532,13 @@ async function recoverFromCatalogPersistenceFailure(input: {
   let recoveryError: unknown | null = null;
 
   try {
-    await input.catalogStore.recordVectorStoreIndexResult({
+    await input.catalogStore.recordIndexingState({
       datasetVersion: input.document.datasetVersion,
       docId: input.document.docId,
       documentVersion: input.document.documentVersion,
       lastError: failedLastError,
       lastIndexedAt: getCurrentTimestamp(),
+      openAIFileId: input.document.openAIFileId,
       status: "failed",
       vectorStoreId: recoveredVectorStoreId,
     });
@@ -611,12 +650,13 @@ export function createAttachKnowledgeDocumentToVectorStore(
     );
 
     try {
-      await deps.catalogStore.recordVectorStoreIndexResult({
+      await deps.catalogStore.recordIndexingState({
         datasetVersion: document.datasetVersion,
         docId: document.docId,
         documentVersion: document.documentVersion,
         lastError: null,
         lastIndexedAt: null,
+        openAIFileId: document.openAIFileId,
         status: "attached",
         vectorStoreId: vectorStoreRegistration.vectorStoreId,
       });
@@ -648,7 +688,8 @@ export function createAttachKnowledgeDocumentToVectorStore(
     let polledVectorStoreFile: OpenAIVectorStoreFilePollResult;
 
     try {
-      polledVectorStoreFile = await deps.openAI.pollVectorStoreFile(
+      polledVectorStoreFile = await pollVectorStoreFileWithRetry(
+        deps.openAI,
         vectorStoreRegistration.vectorStoreId,
         vectorStoreFileId,
       );
@@ -700,12 +741,13 @@ export function createAttachKnowledgeDocumentToVectorStore(
     }
 
     try {
-      await deps.catalogStore.recordVectorStoreIndexResult({
+      await deps.catalogStore.recordIndexingState({
         datasetVersion: document.datasetVersion,
         docId: document.docId,
         documentVersion: document.documentVersion,
         lastError: null,
         lastIndexedAt,
+        openAIFileId: document.openAIFileId,
         status: "ready",
         vectorStoreId: vectorStoreRegistration.vectorStoreId,
       });

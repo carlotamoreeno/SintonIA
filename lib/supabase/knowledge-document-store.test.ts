@@ -233,7 +233,81 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     );
   });
 
-  it("records a successful OpenAI upload result on the catalog row", async () => {
+  it("records a pending indexing state and clears all operational fields", async () => {
+    const singleMock = vi.fn().mockResolvedValue({
+      data: {
+        id: "doc-row-pending",
+        doc_id: "orchid-care",
+        title: "Guia de orquideas",
+        original_filename: "orchid-guide.pdf",
+        document_version: 2,
+        status: "pending",
+        canonical_path:
+          "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+        mime_type: "application/pdf",
+        sha256: "0".repeat(64),
+        dataset_version: "mvp-2026-03",
+        openai_file_id: null,
+        vector_store_id: null,
+        custom_metadata_json: {},
+        last_indexed_at: null,
+        last_error: null,
+        created_at: "2026-03-30T15:37:24.868Z",
+        updated_at: "2026-03-30T15:55:00.000Z",
+      },
+      error: null,
+    });
+    const selectMock = vi.fn().mockReturnValue({
+      single: singleMock,
+    });
+    const documentVersionEqMock = vi.fn().mockReturnValue({
+      select: selectMock,
+    });
+    const docIdEqMock = vi.fn().mockReturnValue({
+      eq: documentVersionEqMock,
+    });
+    const datasetEqMock = vi.fn().mockReturnValue({
+      eq: docIdEqMock,
+    });
+    const updateMock = vi.fn().mockReturnValue({
+      eq: datasetEqMock,
+    });
+    const fromMock = vi.fn().mockReturnValue({
+      update: updateMock,
+    });
+    const store = createKnowledgeDocumentCatalogStore({
+      from: fromMock,
+    } as never);
+
+    const result = await store.recordIndexingState({
+      datasetVersion: "mvp-2026-03",
+      docId: "orchid-care",
+      documentVersion: 2,
+      lastError: null,
+      lastIndexedAt: null,
+      openAIFileId: null,
+      status: "pending",
+      vectorStoreId: null,
+    });
+
+    expect(updateMock).toHaveBeenCalledWith({
+      last_error: null,
+      last_indexed_at: null,
+      openai_file_id: null,
+      status: "pending",
+      updated_at: expect.any(String),
+      vector_store_id: null,
+    });
+    expect(result).toMatchObject({
+      lastError: null,
+      lastIndexedAt: null,
+      openAIFileId: null,
+      status: "pending",
+      vectorStoreId: null,
+    });
+  });
+
+  it("records an uploaded indexing state on the catalog row", async () => {
     const singleMock = vi.fn().mockResolvedValue({
       data: {
         id: "doc-row-3",
@@ -279,21 +353,25 @@ describe("createKnowledgeDocumentCatalogStore", () => {
       from: fromMock,
     } as never);
 
-    const result = await store.recordOpenAIUploadResult({
+    const result = await store.recordIndexingState({
       datasetVersion: "mvp-2026-03",
       docId: "orchid-care",
       documentVersion: 2,
       lastError: null,
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "uploaded",
+      vectorStoreId: null,
     });
 
     expect(fromMock).toHaveBeenCalledWith("knowledge_documents");
     expect(updateMock).toHaveBeenCalledWith({
       last_error: null,
+      last_indexed_at: null,
       openai_file_id: "file_uploaded_123",
       status: "uploaded",
       updated_at: expect.any(String),
+      vector_store_id: null,
     });
     expect(datasetEqMock).toHaveBeenCalledWith(
       "dataset_version",
@@ -307,13 +385,14 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     expect(result).toMatchObject({
       docId: "orchid-care",
       documentVersion: 2,
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "uploaded",
       vectorStoreId: null,
     });
   });
 
-  it("records a failed OpenAI upload result without touching the vector store fields", async () => {
+  it("records a failed indexing state while preserving operational traceability", async () => {
     const store = createKnowledgeDocumentCatalogStore({
       from: vi.fn().mockReturnValue({
         update: vi.fn().mockReturnValue({
@@ -334,10 +413,10 @@ describe("createKnowledgeDocumentCatalogStore", () => {
                       mime_type: "application/pdf",
                       sha256: "f".repeat(64),
                       dataset_version: "mvp-2026-03",
-                      openai_file_id: null,
+                      openai_file_id: "file_uploaded_123",
                       vector_store_id: "vs_existing",
                       custom_metadata_json: {},
-                      last_indexed_at: null,
+                      last_indexed_at: "2026-03-31T09:05:00.000Z",
                       last_error: "Storage object not found.",
                       created_at: "2026-03-30T15:37:24.868Z",
                       updated_at: "2026-03-30T16:05:00.000Z",
@@ -353,23 +432,26 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     } as never);
 
     await expect(
-      store.recordOpenAIUploadResult({
+      store.recordIndexingState({
         datasetVersion: "mvp-2026-03",
         docId: "orchid-care",
         documentVersion: 2,
         lastError: "Storage object not found.",
-        openAIFileId: null,
+        lastIndexedAt: "2026-03-31T09:05:00.000Z",
+        openAIFileId: "file_uploaded_123",
         status: "failed",
+        vectorStoreId: "vs_existing",
       }),
     ).resolves.toMatchObject({
       lastError: "Storage object not found.",
-      openAIFileId: null,
+      lastIndexedAt: "2026-03-31T09:05:00.000Z",
+      openAIFileId: "file_uploaded_123",
       status: "failed",
       vectorStoreId: "vs_existing",
     });
   });
 
-  it("throws when recording the OpenAI upload result fails", async () => {
+  it("throws when recording an indexing state fails", async () => {
     const store = createKnowledgeDocumentCatalogStore({
       from: vi.fn().mockReturnValue({
         update: vi.fn().mockReturnValue({
@@ -392,20 +474,22 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     } as never);
 
     await expect(
-      store.recordOpenAIUploadResult({
+      store.recordIndexingState({
         datasetVersion: "mvp-2026-03",
         docId: "orchid-care",
         documentVersion: 2,
         lastError: "boom",
+        lastIndexedAt: null,
         openAIFileId: "file_uploaded_123",
-        status: "failed",
+        status: "uploaded",
+        vectorStoreId: null,
       }),
     ).rejects.toThrow(
-      "Failed to record knowledge document OpenAI upload result: update-boom",
+      "Failed to record knowledge document indexing state: update-boom",
     );
   });
 
-  it("records an attached vector store index result on the catalog row", async () => {
+  it("records an attached indexing state on the catalog row", async () => {
     const singleMock = vi.fn().mockResolvedValue({
       data: {
         id: "doc-row-5",
@@ -451,12 +535,13 @@ describe("createKnowledgeDocumentCatalogStore", () => {
       from: fromMock,
     } as never);
 
-    const result = await store.recordVectorStoreIndexResult({
+    const result = await store.recordIndexingState({
       datasetVersion: "mvp-2026-03",
       docId: "orchid-care",
       documentVersion: 2,
       lastError: null,
       lastIndexedAt: null,
+      openAIFileId: "file_uploaded_123",
       status: "attached",
       vectorStoreId: "vs_123",
     });
@@ -464,6 +549,7 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     expect(updateMock).toHaveBeenCalledWith({
       last_error: null,
       last_indexed_at: null,
+      openai_file_id: "file_uploaded_123",
       status: "attached",
       updated_at: expect.any(String),
       vector_store_id: "vs_123",
@@ -479,99 +565,77 @@ describe("createKnowledgeDocumentCatalogStore", () => {
     });
   });
 
-  it("records a failed vector store index result without touching the OpenAI file id", async () => {
+  it("records a ready indexing state on the catalog row", async () => {
     const singleMock = vi.fn().mockResolvedValue({
       data: {
-        id: "doc-row-6",
+        id: "doc-row-ready",
         doc_id: "orchid-care",
         title: "Guia de orquideas",
         original_filename: "orchid-guide.pdf",
         document_version: 2,
-        status: "failed",
+        status: "ready",
         canonical_path:
           "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
         mime_type: "application/pdf",
-        sha256: "2".repeat(64),
+        sha256: "3".repeat(64),
         dataset_version: "mvp-2026-03",
         openai_file_id: "file_uploaded_123",
         vector_store_id: "vs_123",
         custom_metadata_json: {},
-        last_indexed_at: "2026-03-31T09:05:00.000Z",
-        last_error: "Vector store file finished with status failed.",
+        last_indexed_at: "2026-03-31T09:15:00.000Z",
+        last_error: null,
         created_at: "2026-03-30T15:37:24.868Z",
-        updated_at: "2026-03-31T09:05:00.000Z",
+        updated_at: "2026-03-31T09:15:00.000Z",
       },
       error: null,
     });
+    const selectMock = vi.fn().mockReturnValue({
+      single: singleMock,
+    });
+    const documentVersionEqMock = vi.fn().mockReturnValue({
+      select: selectMock,
+    });
+    const docIdEqMock = vi.fn().mockReturnValue({
+      eq: documentVersionEqMock,
+    });
+    const datasetEqMock = vi.fn().mockReturnValue({
+      eq: docIdEqMock,
+    });
+    const updateMock = vi.fn().mockReturnValue({
+      eq: datasetEqMock,
+    });
+    const fromMock = vi.fn().mockReturnValue({
+      update: updateMock,
+    });
     const store = createKnowledgeDocumentCatalogStore({
-      from: vi.fn().mockReturnValue({
-        update: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                select: vi.fn().mockReturnValue({
-                  single: singleMock,
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
+      from: fromMock,
     } as never);
 
-    await expect(
-      store.recordVectorStoreIndexResult({
-        datasetVersion: "mvp-2026-03",
-        docId: "orchid-care",
-        documentVersion: 2,
-        lastError: "Vector store file finished with status failed.",
-        lastIndexedAt: "2026-03-31T09:05:00.000Z",
-        status: "failed",
-        vectorStoreId: "vs_123",
-      }),
-    ).resolves.toMatchObject({
-      lastError: "Vector store file finished with status failed.",
-      lastIndexedAt: "2026-03-31T09:05:00.000Z",
+    const result = await store.recordIndexingState({
+      datasetVersion: "mvp-2026-03",
+      docId: "orchid-care",
+      documentVersion: 2,
+      lastError: null,
+      lastIndexedAt: "2026-03-31T09:15:00.000Z",
       openAIFileId: "file_uploaded_123",
-      status: "failed",
+      status: "ready",
       vectorStoreId: "vs_123",
     });
-  });
 
-  it("throws when recording the vector store index result fails", async () => {
-    const store = createKnowledgeDocumentCatalogStore({
-      from: vi.fn().mockReturnValue({
-        update: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                select: vi.fn().mockReturnValue({
-                  single: vi.fn().mockResolvedValue({
-                    data: null,
-                    error: {
-                      message: "vector-index-update-boom",
-                    },
-                  }),
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    } as never);
-
-    await expect(
-      store.recordVectorStoreIndexResult({
-        datasetVersion: "mvp-2026-03",
-        docId: "orchid-care",
-        documentVersion: 2,
-        lastError: "boom",
-        lastIndexedAt: "2026-03-31T09:05:00.000Z",
-        status: "failed",
-        vectorStoreId: "vs_123",
-      }),
-    ).rejects.toThrow(
-      "Failed to record knowledge document vector store index result: vector-index-update-boom",
-    );
+    expect(updateMock).toHaveBeenCalledWith({
+      last_error: null,
+      last_indexed_at: "2026-03-31T09:15:00.000Z",
+      openai_file_id: "file_uploaded_123",
+      status: "ready",
+      updated_at: expect.any(String),
+      vector_store_id: "vs_123",
+    });
+    expect(result).toMatchObject({
+      lastError: null,
+      lastIndexedAt: "2026-03-31T09:15:00.000Z",
+      openAIFileId: "file_uploaded_123",
+      status: "ready",
+      vectorStoreId: "vs_123",
+    });
   });
 });

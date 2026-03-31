@@ -27,7 +27,7 @@ function createCatalogDocument(overrides?: Record<string, unknown>) {
 }
 
 function createDeps() {
-  const recordOpenAIUploadResult = vi.fn();
+  const recordIndexingState = vi.fn();
   const findDocumentByIdentity = vi
     .fn()
     .mockResolvedValue(createCatalogDocument());
@@ -64,7 +64,7 @@ function createDeps() {
   return {
     catalogStore: {
       findDocumentByIdentity,
-      recordOpenAIUploadResult,
+      recordIndexingState,
     },
     openAI: {
       createFile,
@@ -81,7 +81,7 @@ function createDeps() {
       deleteFile,
       download,
       findDocumentByIdentity,
-      recordOpenAIUploadResult,
+      recordIndexingState,
       storageFrom,
       waitForFileProcessing,
     },
@@ -91,7 +91,7 @@ function createDeps() {
 describe("createUploadKnowledgeDocumentToOpenAI", () => {
   it("uploads the canonical storage object to OpenAI and records the uploaded status", async () => {
     const deps = createDeps();
-    deps.spies.recordOpenAIUploadResult.mockResolvedValue(
+    deps.spies.recordIndexingState.mockResolvedValue(
       createCatalogDocument({
         openAIFileId: "file_uploaded_123",
         status: "uploaded",
@@ -128,13 +128,15 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       "file_uploaded_123",
     );
     expect(deps.spies.deleteFile).not.toHaveBeenCalled();
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenCalledWith({
+    expect(deps.spies.recordIndexingState).toHaveBeenCalledWith({
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError: null,
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "uploaded",
+      vectorStoreId: null,
     });
     expect(result).toEqual({
       document: {
@@ -164,7 +166,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
 
   it("deletes the remote file and records a retryable failed state when the uploaded result cannot be persisted", async () => {
     const deps = createDeps();
-    deps.spies.recordOpenAIUploadResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockResolvedValueOnce(
         createCatalogDocument({
@@ -190,29 +192,33 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       openAIFileId: "file_uploaded_123",
     });
     expect(deps.spies.deleteFile).toHaveBeenCalledWith("file_uploaded_123");
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(1, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(1, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError: null,
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "uploaded",
+      vectorStoreId: null,
     });
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote OpenAI file deleted and catalog row marked as failed for retry.",
+      lastIndexedAt: null,
       openAIFileId: null,
       status: "failed",
+      vectorStoreId: null,
     });
   });
 
   it("records a failed state with the original openai_file_id when remote cleanup fails", async () => {
     const deps = createDeps();
     deps.spies.deleteFile.mockRejectedValue(new Error("delete-boom"));
-    deps.spies.recordOpenAIUploadResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockResolvedValueOnce(
         createCatalogDocument({
@@ -237,20 +243,22 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
         "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.",
       openAIFileId: "file_uploaded_123",
     });
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenNthCalledWith(2, {
+    expect(deps.spies.recordIndexingState).toHaveBeenNthCalledWith(2, {
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Processed OpenAI file file_uploaded_123 could not be recorded as uploaded in knowledge_documents: catalog-write-failed. Remote cleanup failed: delete-boom. Catalog row marked as failed with openai_file_id preserved for traceability. Manual cleanup is still required.",
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "failed",
+      vectorStoreId: null,
     });
   });
 
   it("keeps the error structured when recovery persistence fails after deleting the remote file", async () => {
     const deps = createDeps();
-    deps.spies.recordOpenAIUploadResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockRejectedValueOnce(new Error("recovery-boom"));
     const uploadKnowledgeDocumentToOpenAI =
@@ -278,7 +286,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
   it("keeps the error structured when both remote cleanup and recovery persistence fail", async () => {
     const deps = createDeps();
     deps.spies.deleteFile.mockRejectedValue(new Error("delete-boom"));
-    deps.spies.recordOpenAIUploadResult
+    deps.spies.recordIndexingState
       .mockRejectedValueOnce(new Error("catalog-write-failed"))
       .mockRejectedValueOnce(new Error("recovery-boom"));
     const uploadKnowledgeDocumentToOpenAI =
@@ -321,7 +329,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       name: "UploadKnowledgeDocumentToOpenAIError",
     });
     expect(deps.spies.download).not.toHaveBeenCalled();
-    expect(deps.spies.recordOpenAIUploadResult).not.toHaveBeenCalled();
+    expect(deps.spies.recordIndexingState).not.toHaveBeenCalled();
   });
 
   it("rejects retired catalog rows before touching storage", async () => {
@@ -344,7 +352,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       code: "document_retired",
     });
     expect(deps.spies.download).not.toHaveBeenCalled();
-    expect(deps.spies.recordOpenAIUploadResult).not.toHaveBeenCalled();
+    expect(deps.spies.recordIndexingState).not.toHaveBeenCalled();
   });
 
   it("rejects rows that already expose an openai_file_id", async () => {
@@ -369,7 +377,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       openAIFileId: "file_existing_123",
     });
     expect(deps.spies.createFile).not.toHaveBeenCalled();
-    expect(deps.spies.recordOpenAIUploadResult).not.toHaveBeenCalled();
+    expect(deps.spies.recordIndexingState).not.toHaveBeenCalled();
   });
 
   it("records a failed result when the canonical storage object cannot be downloaded", async () => {
@@ -380,7 +388,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
         message: "Object not found",
       },
     });
-    deps.spies.recordOpenAIUploadResult.mockResolvedValue(
+    deps.spies.recordIndexingState.mockResolvedValue(
       createCatalogDocument({
         lastError:
           "Failed to download datasets/mvp-2026-03/botanica-mvp-v1-corpus-mvp/v1/hash--botanica-mvp-v1-corpus-mvp.pdf from knowledge-documents: Object not found",
@@ -401,14 +409,16 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       name: "UploadKnowledgeDocumentToOpenAIError",
       openAIFileId: null,
     });
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenCalledWith({
+    expect(deps.spies.recordIndexingState).toHaveBeenCalledWith({
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError:
         "Failed to download datasets/mvp-2026-03/botanica-mvp-v1-corpus-mvp/v1/hash--botanica-mvp-v1-corpus-mvp.pdf from knowledge-documents: Object not found",
+      lastIndexedAt: null,
       openAIFileId: null,
       status: "failed",
+      vectorStoreId: null,
     });
     expect(deps.spies.createFile).not.toHaveBeenCalled();
   });
@@ -423,7 +433,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       purpose: "assistants",
       status: "error",
     });
-    deps.spies.recordOpenAIUploadResult.mockResolvedValue(
+    deps.spies.recordIndexingState.mockResolvedValue(
       createCatalogDocument({
         lastError: "OpenAI file file_uploaded_123 finished with status error.",
         openAIFileId: "file_uploaded_123",
@@ -443,13 +453,15 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       code: "openai_file_processing_failed",
       openAIFileId: "file_uploaded_123",
     });
-    expect(deps.spies.recordOpenAIUploadResult).toHaveBeenCalledWith({
+    expect(deps.spies.recordIndexingState).toHaveBeenCalledWith({
       datasetVersion: "mvp-2026-03",
       docId: "botanica-mvp-v1-corpus-mvp",
       documentVersion: 1,
       lastError: "OpenAI file file_uploaded_123 finished with status error.",
+      lastIndexedAt: null,
       openAIFileId: "file_uploaded_123",
       status: "failed",
+      vectorStoreId: null,
     });
   });
 
@@ -463,9 +475,7 @@ describe("createUploadKnowledgeDocumentToOpenAI", () => {
       purpose: "assistants",
       status: "error",
     });
-    deps.spies.recordOpenAIUploadResult.mockRejectedValue(
-      new Error("catalog-boom"),
-    );
+    deps.spies.recordIndexingState.mockRejectedValue(new Error("catalog-boom"));
     const uploadKnowledgeDocumentToOpenAI =
       createUploadKnowledgeDocumentToOpenAI(deps);
 
