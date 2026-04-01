@@ -383,6 +383,30 @@ function MessageCitations({ citations }: { citations: ChatCitation[] }) {
   );
 }
 
+function GroundingBadge({ grounded }: { grounded: boolean }) {
+  const label = grounded
+    ? "Con respaldo documental"
+    : "Sin respaldo documental";
+  const description = grounded
+    ? "Respuesta sustentada en documentos del corpus."
+    : "Respuesta sin respaldo documental suficiente en el corpus.";
+
+  return (
+    <span
+      aria-label={description}
+      className={cn(
+        "mb-3 inline-flex rounded-full border px-3 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.08em]",
+        grounded
+          ? "border-[#bfd5c5] bg-[#edf6ef] text-[#2f6b49]"
+          : "border-[#e5c99a] bg-[#fff4e2] text-[#8a5a14]",
+      )}
+      title={description}
+    >
+      {label}
+    </span>
+  );
+}
+
 function SidebarSvgIcon({ src }: { src: string }) {
   return <Image alt="" aria-hidden="true" height={16} src={src} width={16} />;
 }
@@ -705,6 +729,12 @@ function ConversationView({
             message.role === "assistant" &&
             isPending &&
             message.content.trim().length === 0;
+          const groundingState =
+            typeof message.grounded === "boolean" ? message.grounded : null;
+          const shouldRenderGroundingBadge =
+            message.role === "assistant" &&
+            message.deliveryStatus === "ready" &&
+            groundingState !== null;
 
           return (
             <div
@@ -732,6 +762,9 @@ function ConversationView({
                   <span>{message.role}</span>
                   <span>{formatTimestamp(message.createdAt)}</span>
                 </div>
+                {shouldRenderGroundingBadge ? (
+                  <GroundingBadge grounded={groundingState} />
+                ) : null}
                 {shouldRenderBotanicalWaitingIndicator ? (
                   <BotanicalWaitingIndicator />
                 ) : message.role === "assistant" ? (

@@ -184,6 +184,7 @@ describe("ChatPageContent", () => {
     expect(
       screen.getByText("Respuesta ya leida desde SSR"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Sin respaldo documental")).toBeInTheDocument();
     expect(screen.getByText("2 mensajes")).toBeInTheDocument();
     expect(
       screen.getByRole("link", {
@@ -264,6 +265,7 @@ describe("ChatPageContent", () => {
     );
 
     expect(screen.getByText("Fuentes")).toBeInTheDocument();
+    expect(screen.getByText("Con respaldo documental")).toBeInTheDocument();
     expect(screen.getByText(sampleCitation.documentName)).toBeInTheDocument();
     expect(screen.getByText(sampleCitation.snippet)).toBeInTheDocument();
   });
@@ -524,6 +526,47 @@ describe("ChatPageContent", () => {
       screen.queryByText(sampleCitation.documentName),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(sampleCitation.snippet)).not.toBeInTheDocument();
+    expect(screen.getByText("Sin respaldo documental")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Con respaldo documental"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the grounding badge for user messages even if the data is invalid", () => {
+    render(
+      <ChatPageContent
+        {...defaultProps}
+        selectedConversationId="conversation-1"
+        history={[
+          {
+            id: "conversation-1",
+            title: "Consulta sin badge en usuario",
+            status: "active",
+            createdAt: "2026-03-19T12:00:00.000Z",
+            updatedAt: "2026-03-19T12:00:00.000Z",
+            lastMessageAt: "2026-03-19T12:05:00.000Z",
+            messages: [
+              {
+                citations: [sampleCitation],
+                id: "message-1",
+                grounded: true,
+                providerMessageId: null,
+                role: "user",
+                content: "Mensaje del usuario",
+                createdAt: "2026-03-19T12:05:00.000Z",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByText("Con respaldo documental"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Sin respaldo documental"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps markdown markers literal for user messages", () => {
@@ -643,6 +686,12 @@ describe("ChatPageContent", () => {
     });
     expect(screen.getByText("Necesita mas agua")).toBeInTheDocument();
     expect(screen.getByText("Preparando respuesta…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Con respaldo documental"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Sin respaldo documental"),
+    ).not.toBeInTheDocument();
     expect(textarea).toHaveValue("");
 
     resolveFetch?.(
@@ -667,6 +716,7 @@ describe("ChatPageContent", () => {
     });
 
     expect(screen.getByText("Fuentes")).toBeInTheDocument();
+    expect(screen.getByText("Con respaldo documental")).toBeInTheDocument();
     expect(screen.getByText(sampleCitation.documentName)).toBeInTheDocument();
     expect(screen.getByText(sampleCitation.snippet)).toBeInTheDocument();
     expect(screen.queryByText("Preparando respuesta…")).not.toBeInTheDocument();
@@ -943,6 +993,12 @@ describe("ChatPageContent", () => {
       expect(screen.getByText("**Riego")).toBeInTheDocument();
     });
     expect(screen.queryByText("Riego", { selector: "strong" })).toBeNull();
+    expect(
+      screen.queryByText("Con respaldo documental"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Sin respaldo documental"),
+    ).not.toBeInTheDocument();
 
     await act(async () => {
       controlledStream.push(
@@ -981,6 +1037,7 @@ describe("ChatPageContent", () => {
         }),
       ).toBeInTheDocument();
     });
+    expect(screen.getByText("Sin respaldo documental")).toBeInTheDocument();
   });
 
   it("switches the visible conversation immediately when clicking another item in the sidebar", async () => {
