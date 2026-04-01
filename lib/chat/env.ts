@@ -11,8 +11,13 @@ export const DEFAULT_CHAT_MAX_MESSAGE_CHARS = MAX_CHAT_MESSAGE_CHARS;
 export const DEFAULT_CHAT_MAX_HISTORY_TURNS = MAX_CHAT_HISTORY_TURNS;
 export const DEFAULT_CHAT_MAX_OUTPUT_TOKENS = MAX_CHAT_OUTPUT_TOKENS;
 export const DEFAULT_CHAT_RATE_LIMIT_PER_MIN = 20;
+export const DEFAULT_CHAT_ENABLE_PROMPT_CACHING = false;
 
 const chatRuntimeEnvSchema = z.object({
+  CHAT_ENABLE_PROMPT_CACHING: z
+    .string()
+    .optional()
+    .default(String(DEFAULT_CHAT_ENABLE_PROMPT_CACHING)),
   CHAT_MAX_HISTORY_TURNS: z.coerce
     .number()
     .int()
@@ -48,11 +53,26 @@ const chatRuntimeEnvSchema = z.object({
 });
 
 export type ChatRuntimeEnv = {
+  enablePromptCaching: boolean;
   maxHistoryTurns: number;
   maxMessageChars: number;
   maxOutputTokens: number;
   rateLimitPerMinute: number;
 };
+
+function parseChatPromptCachingFlag(value: string) {
+  const normalizedValue = value.trim().toLowerCase();
+
+  if (normalizedValue === "true") {
+    return true;
+  }
+
+  if (normalizedValue === "false") {
+    return false;
+  }
+
+  throw new Error("CHAT_ENABLE_PROMPT_CACHING must be either true or false.");
+}
 
 export function parseChatRuntimeEnv(
   input: NodeJS.ProcessEnv | Record<string, string | undefined>,
@@ -60,6 +80,9 @@ export function parseChatRuntimeEnv(
   const env = chatRuntimeEnvSchema.parse(input);
 
   return {
+    enablePromptCaching: parseChatPromptCachingFlag(
+      env.CHAT_ENABLE_PROMPT_CACHING,
+    ),
     maxHistoryTurns: env.CHAT_MAX_HISTORY_TURNS,
     maxMessageChars: env.CHAT_MAX_MESSAGE_CHARS,
     maxOutputTokens: env.CHAT_MAX_OUTPUT_TOKENS,

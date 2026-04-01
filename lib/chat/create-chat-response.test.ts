@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { OpenAIAdapterError } from "@/lib/openai/adapter-core";
 import { createCreateChatResponse } from "./create-chat-response-core";
@@ -51,8 +52,33 @@ function createReadyVectorStore() {
   };
 }
 
+function createChatResponseService(
+  deps: ReturnType<typeof createDeps>,
+  overrides: Partial<Parameters<typeof createCreateChatResponse>[0]> = {},
+) {
+  return createCreateChatResponse({
+    activeVectorStoreId: "vs_active_123",
+    catalogStore: deps.catalogStore,
+    conversationStore: deps.conversationStore,
+    enablePromptCaching: false,
+    maxHistoryTurns: 12,
+    maxOutputTokens: 800,
+    model: "gpt-5-nano",
+    openAI: deps.openAI,
+    ...overrides,
+  });
+}
+
+function createExpectedPromptCacheKey(conversationId: string) {
+  const hash = createHash("sha256")
+    .update(`gpt-5-nano:vs_active_123:${conversationId}`)
+    .digest("hex");
+
+  return `chat_pc_${hash.slice(0, 32)}`;
+}
+
 describe("createCreateChatResponse", () => {
-  it("creates a new conversation and sends the first user message to the model", async () => {
+  it("creates a new conversation and sends the first user message to the model without a prompt cache key by default", async () => {
     const deps = createDeps();
     deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
       conversationId: "conversation-1",
@@ -71,15 +97,7 @@ describe("createCreateChatResponse", () => {
       output: [],
       output_text: "Respuesta inicial",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       message: "  Consulta inicial  ",
@@ -132,7 +150,7 @@ describe("createCreateChatResponse", () => {
     });
   });
 
-  it("loads an existing conversation and includes its history in the model input", async () => {
+  it("loads an existing conversation and includes its history in the model input without a prompt cache key by default", async () => {
     const deps = createDeps();
     deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce({
       createdAt: "2026-03-31T12:00:00.000Z",
@@ -164,15 +182,7 @@ describe("createCreateChatResponse", () => {
       output: [],
       output_text: "Seguimos con la consulta",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       conversationId: "conversation-1",
@@ -228,18 +238,111 @@ describe("createCreateChatResponse", () => {
     });
   });
 
+  it("adds a stable prompt cache key for newly created conversations when enabled", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_123",
+      output: [],
+      output_text: "Respuesta inicial",
+    });
+    const createChatResponse = createChatResponseService(deps, {
+      enablePromptCaching: true,
+    });
+
+    await createChatResponse({
+      message: "Consulta inicial",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.createResponse).toHaveBeenCalledWith({
+      include: ["file_search_call.results"],
+      input: "Consulta inicial",
+      max_output_tokens: 800,
+      model: "gpt-5-nano",
+      prompt_cache_key: createExpectedPromptCacheKey("conversation-1"),
+      store: false,
+      tools: [
+        {
+          type: "file_search",
+          vector_store_ids: ["vs_active_123"],
+        },
+      ],
+    });
+  });
+
+  it("adds a stable prompt cache key for follow-up requests when enabled", async () => {
+    const deps = createDeps();
+    deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce({
+      createdAt: "2026-03-31T12:00:00.000Z",
+      id: "conversation-1",
+      lastMessageAt: "2026-03-31T12:05:00.000Z",
+      messages: [
+        {
+          content: "Mensaje previo del usuario",
+          createdAt: "2026-03-31T12:00:00.000Z",
+          id: "message-1",
+          role: "user",
+        },
+      ],
+      status: "active",
+      title: "Consulta previa",
+      updatedAt: "2026-03-31T12:05:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_456",
+      output: [],
+      output_text: "Seguimos con la consulta",
+    });
+    const createChatResponse = createChatResponseService(deps, {
+      enablePromptCaching: true,
+    });
+
+    await createChatResponse({
+      conversationId: "conversation-1",
+      message: "Nueva pregunta",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.createResponse).toHaveBeenCalledWith({
+      include: ["file_search_call.results"],
+      input: [
+        "Conversation history:",
+        "USER: Mensaje previo del usuario",
+        "",
+        "USER: Nueva pregunta",
+      ].join("\n"),
+      max_output_tokens: 800,
+      model: "gpt-5-nano",
+      prompt_cache_key: createExpectedPromptCacheKey("conversation-1"),
+      store: false,
+      tools: [
+        {
+          type: "file_search",
+          vector_store_ids: ["vs_active_123"],
+        },
+      ],
+    });
+  });
+
   it("rejects missing or foreign conversations without exposing ownership details", async () => {
     const deps = createDeps();
     deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce(null);
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -275,15 +378,7 @@ describe("createCreateChatResponse", () => {
     deps.spies.persistAssistantMessageWithCitations.mockRejectedValueOnce(
       new Error("db write failed"),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -378,15 +473,7 @@ describe("createCreateChatResponse", () => {
       output_text:
         "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       message: "Consulta grounded",
@@ -521,15 +608,7 @@ describe("createCreateChatResponse", () => {
       ],
       output_text: "Respuesta grounded con fallback de catálogo.",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       message: "Consulta grounded",
@@ -617,15 +696,7 @@ describe("createCreateChatResponse", () => {
       ],
       output_text: "Respuesta grounded.",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       message: "Consulta grounded",
@@ -713,15 +784,7 @@ describe("createCreateChatResponse", () => {
       ],
       output_text: "Respuesta sin grounding usable.",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     const result = await createChatResponse({
       message: "Consulta grounded",
@@ -757,15 +820,7 @@ describe("createCreateChatResponse", () => {
         type: "server_error",
       }),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -803,15 +858,7 @@ describe("createCreateChatResponse", () => {
         type: "rate_limit_error",
       }),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -847,15 +894,7 @@ describe("createCreateChatResponse", () => {
         type: "rate_limit_error",
       }),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -893,15 +932,7 @@ describe("createCreateChatResponse", () => {
         retryable: true,
       }),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -934,15 +965,7 @@ describe("createCreateChatResponse", () => {
         retryable: true,
       }),
     );
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -979,15 +1002,7 @@ describe("createCreateChatResponse", () => {
       id: "vs_active_123",
       status: "in_progress",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -1024,15 +1039,7 @@ describe("createCreateChatResponse", () => {
       id: "vs_active_123",
       status: "completed",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
-      maxHistoryTurns: 12,
-      maxOutputTokens: 800,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
-    });
+    const createChatResponse = createChatResponseService(deps);
 
     await expect(
       createChatResponse({
@@ -1091,14 +1098,9 @@ describe("createCreateChatResponse", () => {
       output: [],
       output_text: "Respuesta truncada",
     });
-    const createChatResponse = createCreateChatResponse({
-      activeVectorStoreId: "vs_active_123",
-      catalogStore: deps.catalogStore,
-      conversationStore: deps.conversationStore,
+    const createChatResponse = createChatResponseService(deps, {
       maxHistoryTurns: 2,
       maxOutputTokens: 321,
-      model: "gpt-5-nano",
-      openAI: deps.openAI,
     });
 
     const result = await createChatResponse({

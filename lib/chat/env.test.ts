@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_CHAT_ENABLE_PROMPT_CACHING,
   DEFAULT_CHAT_MAX_HISTORY_TURNS,
   DEFAULT_CHAT_MAX_MESSAGE_CHARS,
   DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
@@ -15,6 +16,21 @@ import {
 describe("parseChatRuntimeEnv", () => {
   it("returns the documented defaults when runtime caps are omitted", () => {
     expect(parseChatRuntimeEnv({})).toEqual({
+      enablePromptCaching: DEFAULT_CHAT_ENABLE_PROMPT_CACHING,
+      maxHistoryTurns: DEFAULT_CHAT_MAX_HISTORY_TURNS,
+      maxMessageChars: DEFAULT_CHAT_MAX_MESSAGE_CHARS,
+      maxOutputTokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
+      rateLimitPerMinute: DEFAULT_CHAT_RATE_LIMIT_PER_MIN,
+    });
+  });
+
+  it("parses the prompt caching flag when explicitly enabled", () => {
+    expect(
+      parseChatRuntimeEnv({
+        CHAT_ENABLE_PROMPT_CACHING: " TrUe ",
+      }),
+    ).toEqual({
+      enablePromptCaching: true,
       maxHistoryTurns: DEFAULT_CHAT_MAX_HISTORY_TURNS,
       maxMessageChars: DEFAULT_CHAT_MAX_MESSAGE_CHARS,
       maxOutputTokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
@@ -25,12 +41,14 @@ describe("parseChatRuntimeEnv", () => {
   it("parses explicit runtime cap overrides", () => {
     expect(
       parseChatRuntimeEnv({
+        CHAT_ENABLE_PROMPT_CACHING: "false",
         CHAT_MAX_HISTORY_TURNS: "8",
         CHAT_MAX_MESSAGE_CHARS: "3000",
         CHAT_MAX_OUTPUT_TOKENS: "600",
         CHAT_RATE_LIMIT_PER_MIN: "15",
       }),
     ).toEqual({
+      enablePromptCaching: false,
       maxHistoryTurns: 8,
       maxMessageChars: 3000,
       maxOutputTokens: 600,
@@ -84,5 +102,13 @@ describe("parseChatRuntimeEnv", () => {
         CHAT_RATE_LIMIT_PER_MIN: "0",
       }),
     ).toThrow();
+  });
+
+  it("rejects prompt caching flags outside the true/false contract", () => {
+    expect(() =>
+      parseChatRuntimeEnv({
+        CHAT_ENABLE_PROMPT_CACHING: "yes",
+      }),
+    ).toThrow("CHAT_ENABLE_PROMPT_CACHING must be either true or false.");
   });
 });

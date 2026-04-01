@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   OpenAIAdapterError,
   type OpenAIAdapter,
+  type OpenAIResponsesCreateParams,
   type OpenAIResponsesCreateResult,
 } from "@/lib/openai/adapter-core";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
@@ -101,6 +103,7 @@ export type CreateChatResponseDeps = {
     | "createConversationWithFirstUserMessage"
     | "findConversationHistoryForUserById"
   >;
+  enablePromptCaching: boolean;
   maxHistoryTurns: number;
   maxOutputTokens: number;
   model: string;
@@ -198,6 +201,49 @@ function buildConversationInput(
     "",
     `USER: ${message}`,
   ].join("\n");
+}
+
+function buildPromptCacheKey(
+  model: string,
+  activeVectorStoreId: string,
+  conversationId: string,
+) {
+  const hash = createHash("sha256")
+    .update(`${model}:${activeVectorStoreId}:${conversationId}`)
+    .digest("hex");
+
+  return `chat_pc_${hash.slice(0, 32)}`;
+}
+
+function buildCreateResponseParams(
+  deps: CreateChatResponseDeps,
+  history: PersistedConversationHistory | null,
+  conversationId: string,
+  message: string,
+): OpenAIResponsesCreateParams {
+  const body: OpenAIResponsesCreateParams = {
+    include: ["file_search_call.results"],
+    input: buildConversationInput(history, deps.maxHistoryTurns, message),
+    max_output_tokens: deps.maxOutputTokens,
+    model: deps.model,
+    store: false,
+    tools: [
+      {
+        type: "file_search",
+        vector_store_ids: [deps.activeVectorStoreId],
+      },
+    ],
+  };
+
+  if (deps.enablePromptCaching) {
+    body.prompt_cache_key = buildPromptCacheKey(
+      deps.model,
+      deps.activeVectorStoreId,
+      conversationId,
+    );
+  }
+
+  return body;
 }
 
 function isActiveVectorStoreReady(
@@ -525,23 +571,14 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
     try {
       await assertActiveVectorStoreReady(deps);
 
-      response = await deps.openAI.createResponse({
-        include: ["file_search_call.results"],
-        input: buildConversationInput(
+      response = await deps.openAI.createResponse(
+        buildCreateResponseParams(
+          deps,
           history,
-          deps.maxHistoryTurns,
+          resolvedConversationId,
           parsedInput.message,
         ),
-        max_output_tokens: deps.maxOutputTokens,
-        model: deps.model,
-        store: false,
-        tools: [
-          {
-            type: "file_search",
-            vector_store_ids: [deps.activeVectorStoreId],
-          },
-        ],
-      });
+      );
     } catch (error) {
       if (error instanceof CreateChatResponseError) {
         throw error;

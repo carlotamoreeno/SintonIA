@@ -13,6 +13,7 @@ export const createChatResponse = createCreateChatResponse({
   activeVectorStoreId: openAIServerEnv.activeVectorStoreId,
   catalogStore: knowledgeDocumentCatalogStore,
   conversationStore,
+  enablePromptCaching: chatRuntimeEnv.enablePromptCaching,
   maxHistoryTurns: chatRuntimeEnv.maxHistoryTurns,
   maxOutputTokens: chatRuntimeEnv.maxOutputTokens,
   model: openAIServerEnv.model,
