@@ -268,6 +268,131 @@ describe("ChatPageContent", () => {
     expect(screen.getByText(sampleCitation.snippet)).toBeInTheDocument();
   });
 
+  it("renders long citation snippets with normalized paragraphs and bullet lists", () => {
+    const richCitation = {
+      ...sampleCitation,
+      snippet:
+        "Cómo decidir si toca regar  La decisión correcta combina cuatro capas de información.  ● Vaciar plato o cubremaceta: El agua retenida bajo la maceta prolonga el encharcamiento.  ● A más luz y calor, más consumo: Una planta en ventana muy luminosa secará antes.  ● A menos luz y en invierno, menos riego: La demanda de agua también cae.",
+    };
+
+    render(
+      <ChatPageContent
+        {...defaultProps}
+        selectedConversationId="conversation-1"
+        history={[
+          {
+            id: "conversation-1",
+            title: "Consulta con snippet largo",
+            status: "active",
+            createdAt: "2026-03-19T12:00:00.000Z",
+            updatedAt: "2026-03-19T12:00:00.000Z",
+            lastMessageAt: "2026-03-19T12:05:00.000Z",
+            messages: [
+              {
+                citations: [richCitation],
+                id: "message-2",
+                grounded: true,
+                providerMessageId: "resp_123",
+                role: "assistant",
+                content: "Te ajusto una pauta más precisa.",
+                createdAt: "2026-03-19T12:06:00.000Z",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const sourceCard = screen
+      .getByText(richCitation.documentName)
+      .closest("li");
+
+    expect(sourceCard).not.toBeNull();
+    expect(
+      within(sourceCard as HTMLElement).getByText(
+        /Cómo decidir si toca regar La decisión correcta combina cuatro capas de información\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(sourceCard as HTMLElement).getAllByRole("listitem"),
+    ).toHaveLength(3);
+    expect(
+      within(sourceCard as HTMLElement).getByText(
+        /Vaciar plato o cubremaceta/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(sourceCard as HTMLElement).getByText(
+        /A menos luz y en invierno, menos riego/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders fragment-only citation snippets as a readable bullet list with a detected heading", () => {
+    const fragmentedCitation = {
+      ...sampleCitation,
+      snippet: [
+        "el riesgo de raíces sin oxígeno.",
+        "barro, secará antes que otra igual en un rincón oscuro.",
+        "también cae, incluso si la costumbre del cuidador no cambia.",
+        "regarse con la misma lógica.",
+        "contenedor o la mezcla retienen demasiada agua.",
+        "Cómo decidir si toca regar",
+        "La decisión correcta combina cuatro capas de información. Primera: el grupo de planta. Las plantas.",
+      ].join("\n"),
+    };
+
+    render(
+      <ChatPageContent
+        {...defaultProps}
+        selectedConversationId="conversation-1"
+        history={[
+          {
+            id: "conversation-1",
+            title: "Consulta con snippet fragmentado",
+            status: "active",
+            createdAt: "2026-03-19T12:00:00.000Z",
+            updatedAt: "2026-03-19T12:00:00.000Z",
+            lastMessageAt: "2026-03-19T12:05:00.000Z",
+            messages: [
+              {
+                citations: [fragmentedCitation],
+                id: "message-2",
+                grounded: true,
+                providerMessageId: "resp_123",
+                role: "assistant",
+                content: "Te ajusto una pauta más precisa.",
+                createdAt: "2026-03-19T12:06:00.000Z",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const sourceCard = screen
+      .getByText(fragmentedCitation.documentName)
+      .closest("li");
+
+    expect(sourceCard).not.toBeNull();
+    expect(
+      within(sourceCard as HTMLElement).getByText("Cómo decidir si toca regar"),
+    ).toBeInTheDocument();
+    expect(
+      within(sourceCard as HTMLElement).getAllByRole("listitem"),
+    ).toHaveLength(5);
+    expect(
+      within(sourceCard as HTMLElement).getByText(
+        "...el riesgo de raíces sin oxígeno.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(sourceCard as HTMLElement).getByText(
+        /La decisión correcta combina cuatro capas de información/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("renders lightweight markdown for assistant SSR messages and keeps citations separate", () => {
     render(
       <ChatPageContent
@@ -320,6 +445,40 @@ describe("ChatPageContent", () => {
     expect(
       within(article as HTMLElement).getByText(sampleCitation.snippet),
     ).toBeInTheDocument();
+  });
+
+  it("hides historical provider citation artifacts in persisted assistant messages", () => {
+    render(
+      <ChatPageContent
+        {...defaultProps}
+        selectedConversationId="conversation-1"
+        history={[
+          {
+            id: "conversation-1",
+            title: "Consulta con artefactos",
+            status: "active",
+            createdAt: "2026-03-19T12:00:00.000Z",
+            updatedAt: "2026-03-19T12:00:00.000Z",
+            lastMessageAt: "2026-03-19T12:05:00.000Z",
+            messages: [
+              {
+                citations: [],
+                id: "message-2",
+                grounded: false,
+                providerMessageId: "resp_123",
+                role: "assistant",
+                content:
+                  "Riego y estado general. fileciteturn0file8turn0file9",
+                createdAt: "2026-03-19T12:06:00.000Z",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Riego y estado general.")).toBeInTheDocument();
+    expect(screen.queryByText(/filecite/i)).toBeNull();
   });
 
   it("does not render a citation block for user messages or assistant messages without citations", () => {

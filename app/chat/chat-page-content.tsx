@@ -369,13 +369,83 @@ function MessageCitations({ citations }: { citations: ChatCitation[] }) {
             <p className="text-sm font-semibold text-[#274f3d]">
               {citation.documentName}
             </p>
-            <p className="mt-1 text-sm leading-6 text-[#404943]">
-              {citation.snippet}
-            </p>
+            <CitationSnippetContent snippet={citation.snippet} />
           </li>
         ))}
       </ol>
     </section>
+  );
+}
+
+function normalizeCitationSnippet(snippet: string) {
+  return snippet
+    .replace(/\r\n?/g, "\n")
+    .replace(/\s*([●•])\s*/g, "\n$1 ")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0);
+}
+
+function isCitationSnippetHeading(line: string) {
+  return !/^[●•]\s/u.test(line) && !/[.!?:]$/.test(line) && line.length <= 80;
+}
+
+function formatCitationSnippetFragment(line: string) {
+  if (/^[A-ZÁÉÍÓÚÜ¿¡]/u.test(line) || line.startsWith("...")) {
+    return line;
+  }
+
+  return `...${line}`;
+}
+
+function CitationSnippetContent({ snippet }: { snippet: string }) {
+  const lines = normalizeCitationSnippet(snippet);
+  const explicitBullets = lines
+    .filter((line) => /^[●•]\s/u.test(line))
+    .map((line) => line.replace(/^[●•]\s/u, "").trim());
+  const plainLines = lines.filter((line) => !/^[●•]\s/u.test(line));
+
+  const fallbackHeadingIndex =
+    explicitBullets.length === 0 && plainLines.length >= 3
+      ? plainLines.findIndex((line) => isCitationSnippetHeading(line))
+      : -1;
+  const fragmentLines =
+    explicitBullets.length > 0
+      ? explicitBullets
+      : fallbackHeadingIndex > 0
+        ? plainLines.slice(0, fallbackHeadingIndex)
+        : plainLines.length >= 3
+          ? plainLines.slice(0, Math.max(plainLines.length - 1, 1))
+          : [];
+  const headingLine =
+    fallbackHeadingIndex >= 0 ? plainLines[fallbackHeadingIndex] : null;
+  const paragraphLines =
+    explicitBullets.length > 0
+      ? plainLines
+      : fallbackHeadingIndex >= 0
+        ? plainLines.slice(fallbackHeadingIndex + 1)
+        : plainLines.slice(fragmentLines.length);
+
+  return (
+    <div className="mt-2 max-h-56 space-y-3 overflow-y-auto pr-1 text-sm leading-6 text-[#404943]">
+      {headingLine ? (
+        <p className="font-semibold text-[#566342]" key="heading">
+          {headingLine}
+        </p>
+      ) : null}
+      {paragraphLines.map((paragraph, index) => (
+        <p key={`paragraph-${index}`}>{paragraph}</p>
+      ))}
+      {fragmentLines.length > 0 ? (
+        <ul className="list-disc space-y-2 pl-5 marker:text-[#566342]">
+          {fragmentLines.map((bullet, index) => (
+            <li className="pl-1" key={`bullet-${index}`}>
+              {formatCitationSnippetFragment(bullet)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

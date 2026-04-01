@@ -3,7 +3,7 @@ import type { OpenAIVectorStoreFileChunkingStrategy } from "./adapter-core";
 
 const nonEmptyString = z.string().trim().min(1);
 
-export const DEFAULT_OPENAI_MODEL = "gpt-5-nano";
+export const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 export const DEFAULT_OPENAI_TIMEOUT_MS = 30000;
 export const DEFAULT_OPENAI_VECTOR_STORE_FILE_CHUNKING_STRATEGY = "auto";
 export const MIN_OPENAI_VECTOR_STORE_FILE_MAX_CHUNK_SIZE_TOKENS = 100;

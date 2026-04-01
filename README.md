@@ -44,8 +44,8 @@ Semantica actual de los runtime caps:
 - `CHAT_MAX_HISTORY_TURNS` limita a los ultimos mensajes persistidos reenviados al modelo en cada llamada de chat.
 - `CHAT_MAX_OUTPUT_TOKENS` se propaga a Responses API como `max_output_tokens` para acotar la salida generada.
 - `CHAT_RATE_LIMIT_PER_MIN` aplica una ventana fija de 1 minuto por `user.id` persistido en `POST /api/chat`.
-- Los tres caps de tamano/contexto pueden reducirse por entorno, pero no superar los topes comprometidos del MVP: `4000` caracteres, `12` mensajes persistidos y `800` tokens de salida.
-- En `gpt-5-nano`, este flag solo gobierna el hint `prompt_cache_key`; no desactiva el prompt caching automatico que pueda aplicar el proveedor.
+- Los tres caps de tamano/contexto pueden reducirse por entorno, pero no superar los topes comprometidos del MVP: `4000` caracteres, `12` mensajes persistidos y `4096` tokens de salida.
+- En `gpt-5.4-nano`, este flag solo gobierna el hint `prompt_cache_key`; no desactiva el prompt caching automatico que pueda aplicar el proveedor.
 
 Notas de auth del slice actual:
 
@@ -55,7 +55,7 @@ Notas de auth del slice actual:
 
 Notas de OpenAI del slice actual:
 
-- `OPENAI_MODEL` usa `gpt-5-nano` como default server-only del MVP cuando no se define explicitamente.
+- `OPENAI_MODEL` usa `gpt-5.4-nano` como default server-only del MVP cuando no se define explicitamente.
 - `OPENAI_ACTIVE_VECTOR_STORE_ID` es obligatorio y debe apuntar al vector store activo del entorno.
 - `OPENAI_VECTOR_STORE_FILE_CHUNKING_STRATEGY` admite `auto` o `static`; el default actual es `auto`.
 - `OPENAI_VECTOR_STORE_FILE_MAX_CHUNK_SIZE_TOKENS` y `OPENAI_VECTOR_STORE_FILE_CHUNK_OVERLAP_TOKENS` solo deben definirse cuando la estrategia es `static`.

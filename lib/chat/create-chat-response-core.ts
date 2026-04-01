@@ -6,6 +6,12 @@ import {
   type OpenAIResponsesCreateParams,
   type OpenAIResponsesCreateResult,
 } from "@/lib/openai/adapter-core";
+import {
+  appendTruncationNotice,
+  CHAT_RESPONSE_TRUNCATED_CONTINUATION_PROMPT,
+  mergeAssistantTexts,
+  sanitizeAssistantText,
+} from "./assistant-text";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
@@ -80,6 +86,13 @@ export type CreateChatResponseResult = {
   citations: ChatCitation[];
   conversationId: string;
   grounded: boolean;
+  messageId: string;
+  text: string;
+};
+
+export type ResolvedOpenAIChatResponse = {
+  citations: ChatCitation[];
+  incompleteReason: "content_filter" | "max_output_tokens" | null;
   messageId: string;
   text: string;
 };
@@ -159,7 +172,8 @@ export const CHAT_RESPONSE_INSTRUCTIONS = [
   "Si la solicitud es ajena a SintonIA, al corpus documental o a una aclaración directa de la conversación actual, recházala brevemente y reconduce a la persona usuaria a una consulta dentro de ese ámbito.",
   "Si la persona usuaria solo saluda o agradece, responde de forma breve y mantén el foco en SintonIA.",
   "Para cualquier afirmación factual sobre el corpus o sobre lo ya conversado, apóyate solo en el historial reciente proporcionado y en el contexto recuperado; no inventes hechos, citas, nombres de documentos, identificadores de documento o archivo, ni fragmentos literales.",
-  "Cuando mejore la legibilidad, puedes usar markdown ligero en la respuesta final: **negrita** para ideas clave, listas cortas para pasos o enumeraciones y párrafos claros.",
+  "Cuando la respuesta incluya varios puntos, pasos, advertencias o condiciones, usa markdown ligero por defecto para mejorar la legibilidad.",
+  "Usa exactamente **negrita** para 1 a 3 ideas clave por respuesta, listas cortas con - item o 1. item cuando ordenen mejor la información y líneas en blanco entre párrafos cuando ayuden a escanear.",
   "No sobrecargues el formato y no uses HTML, títulos, tablas, bloques de código, citas en bloque ni sintaxis que la interfaz no soporte.",
   "Usa file_search cuando la respuesta requiera comprobar información del corpus documental.",
   "Si el historial reciente y el contexto recuperado no bastan para sostener una conclusión, o apuntan a algo incierto o conflictivo, responde solo hasta donde esté respaldado y señala la incertidumbre con claridad.",
@@ -238,7 +252,7 @@ function getRecentConversationMessages(
   return messages.slice(-maxHistoryTurns);
 }
 
-function buildConversationInput(
+export function buildConversationInput(
   history: PersistedConversationHistory | null,
   maxHistoryTurns: number,
   message: string,
@@ -262,6 +276,21 @@ function buildConversationInput(
   ].join("\n");
 }
 
+function buildContinuationInput(
+  history: PersistedConversationHistory | null,
+  maxHistoryTurns: number,
+  message: string,
+  partialAssistantText: string,
+) {
+  const baseInput = buildConversationInput(history, maxHistoryTurns, message);
+
+  return [
+    baseInput,
+    `ASSISTANT: ${partialAssistantText}`,
+    `USER: ${CHAT_RESPONSE_TRUNCATED_CONTINUATION_PROMPT}`,
+  ].join("\n");
+}
+
 function buildPromptCacheKey(
   model: string,
   activeVectorStoreId: string,
@@ -280,9 +309,21 @@ export function buildCreateResponseParams(
   conversationId: string,
   message: string,
 ): OpenAIResponsesCreateParams {
+  return buildCreateResponseParamsFromInput(
+    deps,
+    buildConversationInput(history, deps.maxHistoryTurns, message),
+    conversationId,
+  );
+}
+
+export function buildCreateResponseParamsFromInput(
+  deps: CreateChatResponseRequestConfig,
+  input: string,
+  conversationId: string,
+): OpenAIResponsesCreateParams {
   const body: OpenAIResponsesCreateParams = {
     include: ["file_search_call.results"],
-    input: buildConversationInput(history, deps.maxHistoryTurns, message),
+    input,
     instructions: CHAT_RESPONSE_INSTRUCTIONS,
     max_output_tokens: deps.maxOutputTokens,
     model: deps.model,
@@ -575,15 +616,6 @@ export function getResponseId(response: OpenAIResponsesCreateResult) {
 }
 
 function getResponseText(response: OpenAIResponsesCreateResult) {
-  if (
-    hasResponseOutput(response) &&
-    "output_text" in response &&
-    typeof response.output_text === "string" &&
-    response.output_text.trim().length > 0
-  ) {
-    return response.output_text;
-  }
-
   if (!hasResponseOutput(response)) {
     return null;
   }
@@ -600,7 +632,30 @@ function getResponseText(response: OpenAIResponsesCreateResult) {
     .join("\n\n")
     .trim();
 
-  return assistantOutputText.length > 0 ? assistantOutputText : null;
+  if (assistantOutputText.length > 0) {
+    const cleanedAssistantOutputText =
+      sanitizeAssistantText(assistantOutputText);
+
+    return cleanedAssistantOutputText.trim().length > 0
+      ? cleanedAssistantOutputText.trim()
+      : null;
+  }
+
+  if (
+    "output_text" in response &&
+    typeof response.output_text === "string" &&
+    response.output_text.trim().length > 0
+  ) {
+    const cleanedFallbackOutputText = sanitizeAssistantText(
+      response.output_text,
+    );
+
+    return cleanedFallbackOutputText.trim().length > 0
+      ? cleanedFallbackOutputText.trim()
+      : null;
+  }
+
+  return null;
 }
 
 function hasFileSearchCall(
@@ -627,6 +682,125 @@ export function resolveAssistantText(response: OpenAIResponsesCreateResult) {
     code: "upstream_request_failed",
     message: "OpenAI response did not include output text.",
   });
+}
+
+function getIncompleteResponseReason(response: OpenAIResponsesCreateResult) {
+  if (
+    typeof response !== "object" ||
+    response === null ||
+    !("incomplete_details" in response) ||
+    typeof response.incomplete_details !== "object" ||
+    response.incomplete_details === null
+  ) {
+    return null;
+  }
+
+  const { reason } = response.incomplete_details as {
+    reason?: "content_filter" | "max_output_tokens";
+  };
+
+  return reason === "content_filter" || reason === "max_output_tokens"
+    ? reason
+    : null;
+}
+
+function mergeChatCitations(
+  existingCitations: ChatCitation[],
+  nextCitations: ChatCitation[],
+) {
+  const seenFileIds = new Set(
+    existingCitations.map((citation) => citation.fileId),
+  );
+  const mergedCitations = [...existingCitations];
+
+  for (const citation of nextCitations) {
+    if (seenFileIds.has(citation.fileId)) {
+      continue;
+    }
+
+    seenFileIds.add(citation.fileId);
+    mergedCitations.push(citation);
+  }
+
+  return mergedCitations;
+}
+
+export async function resolveOpenAIChatResponse(
+  deps: Pick<CreateChatResponseDeps, "activeVectorStoreId" | "catalogStore">,
+  response: OpenAIResponsesCreateResult,
+): Promise<ResolvedOpenAIChatResponse> {
+  const citations = await getResponseCitations(
+    deps.catalogStore,
+    response,
+    deps.activeVectorStoreId,
+  );
+  const messageId = getResponseId(response);
+  const text = resolveAssistantText(response);
+
+  return {
+    citations,
+    incompleteReason: getIncompleteResponseReason(response),
+    messageId,
+    text,
+  };
+}
+
+async function createChatResponseWithSingleContinuation(
+  deps: CreateChatResponseDeps,
+  context: ResolvedCreateChatConversationContext,
+) {
+  const initialResponse = await deps.openAI.createResponse(
+    buildCreateResponseParams(
+      deps,
+      context.history,
+      context.resolvedConversationId,
+      context.parsedInput.message,
+    ),
+  );
+  const initialResolvedResponse = await resolveOpenAIChatResponse(
+    deps,
+    initialResponse,
+  );
+
+  if (initialResolvedResponse.incompleteReason !== "max_output_tokens") {
+    return initialResolvedResponse;
+  }
+
+  const continuationResponse = await deps.openAI.createResponse(
+    buildCreateResponseParamsFromInput(
+      deps,
+      buildContinuationInput(
+        context.history,
+        deps.maxHistoryTurns,
+        context.parsedInput.message,
+        initialResolvedResponse.text,
+      ),
+      context.resolvedConversationId,
+    ),
+  );
+  const continuationResolvedResponse = await resolveOpenAIChatResponse(
+    deps,
+    continuationResponse,
+  );
+
+  const mergedText = mergeAssistantTexts(
+    initialResolvedResponse.text,
+    continuationResolvedResponse.text,
+  );
+  const mergedCitations = mergeChatCitations(
+    initialResolvedResponse.citations,
+    continuationResolvedResponse.citations,
+  );
+
+  return {
+    citations: mergedCitations,
+    incompleteReason: continuationResolvedResponse.incompleteReason,
+    messageId: continuationResolvedResponse.messageId,
+    text:
+      continuationResolvedResponse.incompleteReason === "max_output_tokens"
+        ? appendTruncationNotice(mergedText)
+        : mergedText,
+  } satisfies ResolvedOpenAIChatResponse;
 }
 
 export async function resolveCreateChatConversationContext(
@@ -735,14 +909,7 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
     try {
       await assertActiveVectorStoreReady(deps);
 
-      response = await deps.openAI.createResponse(
-        buildCreateResponseParams(
-          deps,
-          context.history,
-          context.resolvedConversationId,
-          context.parsedInput.message,
-        ),
-      );
+      response = await createChatResponseWithSingleContinuation(deps, context);
     } catch (error) {
       if (error instanceof CreateChatResponseError) {
         throw error;
@@ -755,27 +922,19 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
       });
     }
 
-    const citations = await getResponseCitations(
-      deps.catalogStore,
-      response,
-      deps.activeVectorStoreId,
-    );
-    const messageId = getResponseId(response);
-    const text = resolveAssistantText(response);
-
     await persistCreateChatResponseResult(deps, {
-      citations,
+      citations: response.citations,
       context,
-      messageId,
-      text,
+      messageId: response.messageId,
+      text: response.text,
     });
 
     return {
-      citations,
+      citations: response.citations,
       conversationId: context.resolvedConversationId,
-      grounded: citations.length > 0,
-      messageId,
-      text,
+      grounded: response.citations.length > 0,
+      messageId: response.messageId,
+      text: response.text,
     };
   };
 }

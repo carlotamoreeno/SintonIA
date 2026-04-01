@@ -105,7 +105,7 @@ export async function POST(request: Request) {
             for await (const event of preparedStream.stream) {
               if (
                 event.type === "response.output_text.delta" &&
-                event.delta.trim().length > 0
+                event.delta.length > 0
               ) {
                 enqueueEvent({
                   delta: event.delta,

@@ -61,6 +61,11 @@ function assertChatPayloadContract(
     (payload?.text ?? "").trim().length > 0,
     "Expected chat response text to be non-empty.",
   );
+  assert.equal(
+    /filecite|||/u.test(payload?.text ?? ""),
+    false,
+    "Expected chat response text to hide provider citation artifacts.",
+  );
   assert.match(payload?.messageId ?? "", /^resp_/);
   assert.equal(Array.isArray(payload?.citations), true);
   assert.equal(typeof payload?.grounded, "boolean");
@@ -86,6 +91,15 @@ function assertChatPayloadContract(
     assert.ok(citation.snippet.trim().length > 0);
     assert.equal(citation.vectorStoreId, activeVectorStoreId);
   }
+}
+
+function toNormalizedVisibleText(text: string) {
+  return text
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\*\*|__/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getRequiredEnv(name: string) {
@@ -669,21 +683,26 @@ async function main() {
       },
     );
     const chatPageHtml = await chatPage.text();
+    const chatPageVisibleText = toNormalizedVisibleText(chatPageHtml);
     assert.equal(chatPage.status, 200);
     assert.ok(
-      chatPageHtml.includes(prompt1),
+      chatPageVisibleText.includes(toNormalizedVisibleText(prompt1)),
       "Expected SSR chat page to include the first persisted user message.",
     );
     assert.ok(
-      chatPageHtml.includes(firstChatResponse.json?.text ?? ""),
+      chatPageVisibleText.includes(
+        toNormalizedVisibleText(firstChatResponse.json?.text ?? ""),
+      ),
       "Expected SSR chat page to include the first persisted assistant message.",
     );
     assert.ok(
-      chatPageHtml.includes(prompt2),
+      chatPageVisibleText.includes(toNormalizedVisibleText(prompt2)),
       "Expected SSR chat page to include the persisted follow-up user message.",
     );
     assert.ok(
-      chatPageHtml.includes(continuedChatResponse.json?.text ?? ""),
+      chatPageVisibleText.includes(
+        toNormalizedVisibleText(continuedChatResponse.json?.text ?? ""),
+      ),
       "Expected SSR chat page to include the persisted follow-up assistant message.",
     );
 

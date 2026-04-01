@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { sanitizeAssistantText } from "@/lib/chat/assistant-text";
 
 type MarkdownBlock =
   | {
@@ -11,14 +12,18 @@ type MarkdownBlock =
     };
 
 const ORDERED_LIST_PATTERN = /^\d+\.\s+(.*)$/;
+const ORDERED_LIST_ALT_PATTERN = /^\d+\)\s+(.*)$/;
 const UNORDERED_LIST_PATTERN = /^-\s+(.*)$/;
+const UNORDERED_LIST_ALT_PATTERN = /^[*•]\s+(.*)$/;
 
 function normalizeMarkdownContent(content: string) {
   return content.replace(/\r\n?/g, "\n");
 }
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
-  const normalizedContent = normalizeMarkdownContent(content);
+  const normalizedContent = normalizeMarkdownContent(
+    sanitizeAssistantText(content),
+  );
   const lines = normalizedContent.split("\n");
   const blocks: MarkdownBlock[] = [];
 
@@ -40,8 +45,9 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     }
 
     const unorderedMatch = line.match(UNORDERED_LIST_PATTERN);
+    const unorderedAltMatch = line.match(UNORDERED_LIST_ALT_PATTERN);
 
-    if (unorderedMatch) {
+    if (unorderedMatch || unorderedAltMatch) {
       if (currentBlock?.type !== "unordered-list") {
         pushCurrentBlock();
         currentBlock = {
@@ -50,13 +56,16 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         };
       }
 
-      currentBlock.items.push(unorderedMatch[1] ?? "");
+      currentBlock.items.push(
+        unorderedMatch?.[1] ?? unorderedAltMatch?.[1] ?? "",
+      );
       continue;
     }
 
     const orderedMatch = line.match(ORDERED_LIST_PATTERN);
+    const orderedAltMatch = line.match(ORDERED_LIST_ALT_PATTERN);
 
-    if (orderedMatch) {
+    if (orderedMatch || orderedAltMatch) {
       if (currentBlock?.type !== "ordered-list") {
         pushCurrentBlock();
         currentBlock = {
@@ -65,7 +74,7 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         };
       }
 
-      currentBlock.items.push(orderedMatch[1] ?? "");
+      currentBlock.items.push(orderedMatch?.[1] ?? orderedAltMatch?.[1] ?? "");
       continue;
     }
 
@@ -97,14 +106,22 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
   };
 
   while (cursor < text.length) {
-    const openingMarkerIndex = text.indexOf("**", cursor);
+    const nextDoubleAsteriskIndex = text.indexOf("**", cursor);
+    const nextDoubleUnderscoreIndex = text.indexOf("__", cursor);
+    const openingMarkerIndex =
+      nextDoubleAsteriskIndex === -1
+        ? nextDoubleUnderscoreIndex
+        : nextDoubleUnderscoreIndex === -1
+          ? nextDoubleAsteriskIndex
+          : Math.min(nextDoubleAsteriskIndex, nextDoubleUnderscoreIndex);
 
     if (openingMarkerIndex === -1) {
       pushText(text.slice(cursor));
       break;
     }
 
-    const closingMarkerIndex = text.indexOf("**", openingMarkerIndex + 2);
+    const marker = text.slice(openingMarkerIndex, openingMarkerIndex + 2);
+    const closingMarkerIndex = text.indexOf(marker, openingMarkerIndex + 2);
 
     if (closingMarkerIndex === -1) {
       pushText(text.slice(cursor));

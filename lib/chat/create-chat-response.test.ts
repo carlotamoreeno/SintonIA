@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { OpenAIAdapterError } from "@/lib/openai/adapter-core";
+import { CHAT_RESPONSE_TRUNCATED_NOTICE } from "./assistant-text";
 import {
   CHAT_RESPONSE_INSTRUCTIONS,
   CHAT_RESPONSE_MISSING_TEXT_FALLBACK_MESSAGE,
   CHAT_RESPONSE_REASONING_EFFORT,
   createCreateChatResponse,
 } from "./create-chat-response-core";
+import { MAX_CHAT_OUTPUT_TOKENS } from "./limits";
 
 function createDeps() {
   const persistAssistantMessageWithCitations = vi.fn();
@@ -67,7 +69,7 @@ function createChatResponseService(
     conversationStore: deps.conversationStore,
     enablePromptCaching: false,
     maxHistoryTurns: 12,
-    maxOutputTokens: 800,
+    maxOutputTokens: MAX_CHAT_OUTPUT_TOKENS,
     model: "gpt-5-nano",
     openAI: deps.openAI,
     ...overrides,
@@ -97,7 +99,7 @@ describe("createCreateChatResponse", () => {
       "Si la solicitud es ajena a SintonIA",
     );
     expect(CHAT_RESPONSE_INSTRUCTIONS).toContain(
-      "puedes usar markdown ligero en la respuesta final",
+      "usa markdown ligero por defecto",
     );
     expect(CHAT_RESPONSE_INSTRUCTIONS).toContain(
       "No sobrecargues el formato y no uses HTML",
@@ -146,7 +148,7 @@ describe("createCreateChatResponse", () => {
       include: ["file_search_call.results"],
       input: "Consulta inicial",
       instructions: CHAT_RESPONSE_INSTRUCTIONS,
-      max_output_tokens: 800,
+      max_output_tokens: MAX_CHAT_OUTPUT_TOKENS,
       model: "gpt-5-nano",
       reasoning: {
         effort: CHAT_RESPONSE_REASONING_EFFORT,
@@ -237,7 +239,7 @@ describe("createCreateChatResponse", () => {
         "USER: Nueva pregunta",
       ].join("\n"),
       instructions: CHAT_RESPONSE_INSTRUCTIONS,
-      max_output_tokens: 800,
+      max_output_tokens: MAX_CHAT_OUTPUT_TOKENS,
       model: "gpt-5-nano",
       reasoning: {
         effort: CHAT_RESPONSE_REASONING_EFFORT,
@@ -304,7 +306,7 @@ describe("createCreateChatResponse", () => {
       include: ["file_search_call.results"],
       input: "Consulta inicial",
       instructions: CHAT_RESPONSE_INSTRUCTIONS,
-      max_output_tokens: 800,
+      max_output_tokens: MAX_CHAT_OUTPUT_TOKENS,
       model: "gpt-5-nano",
       prompt_cache_key: createExpectedPromptCacheKey("conversation-1"),
       reasoning: {
@@ -365,7 +367,7 @@ describe("createCreateChatResponse", () => {
         "USER: Nueva pregunta",
       ].join("\n"),
       instructions: CHAT_RESPONSE_INSTRUCTIONS,
-      max_output_tokens: 800,
+      max_output_tokens: MAX_CHAT_OUTPUT_TOKENS,
       model: "gpt-5-nano",
       prompt_cache_key: createExpectedPromptCacheKey("conversation-1"),
       reasoning: {
@@ -930,6 +932,219 @@ describe("createCreateChatResponse", () => {
 
     expect(result.messageId).toBe("resp_without_output_text");
     expect(result.text).toBe("Texto solo en el item message.");
+  });
+
+  it("cleans provider file citation artifacts from assistant text while preserving grounded citations", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_filecite",
+      output: [
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-1",
+                  index: 47,
+                  type: "file_citation",
+                },
+              ],
+              text: "Riego y el estado de la planta. fileciteturn0file8turn0file9",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+        {
+          id: "fs_1",
+          results: [
+            {
+              attributes: {
+                doc_id: "doc-1",
+                title: "Guia de riego",
+              },
+              file_id: "file-1",
+              text: "Riega solo cuando el sustrato esté seco.",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+      ],
+      output_text:
+        "Texto fallback contaminado. fileciteturn0file8turn0file9",
+    });
+    const createChatResponse = createChatResponseService(deps);
+
+    const result = await createChatResponse({
+      message: "Consulta con citas",
+      userId: "user-1",
+    });
+
+    expect(result.text).toBe("Riego y el estado de la planta.");
+    expect(result.citations).toEqual([
+      {
+        documentId: "doc-1",
+        documentName: "Guia de riego",
+        fileId: "file-1",
+        snippet: "Riega solo cuando el sustrato esté seco.",
+        vectorStoreId: "vs_active_123",
+      },
+    ]);
+    expect(result.grounded).toBe(true);
+  });
+
+  it("continues once when the provider stops because of max_output_tokens", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse
+      .mockResolvedValueOnce({
+        id: "resp_partial",
+        incomplete_details: {
+          reason: "max_output_tokens",
+        },
+        output: [
+          {
+            content: [
+              {
+                annotations: [],
+                text: "Respuesta larga con **un punto importante** y una lista:",
+                type: "output_text",
+              },
+            ],
+            id: "message_1",
+            role: "assistant",
+            status: "completed",
+            type: "message",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        id: "resp_continued",
+        output: [
+          {
+            content: [
+              {
+                annotations: [],
+                text: "\n\n- Primer paso\n- Segundo paso",
+                type: "output_text",
+              },
+            ],
+            id: "message_2",
+            role: "assistant",
+            status: "completed",
+            type: "message",
+          },
+        ],
+      });
+    const createChatResponse = createChatResponseService(deps);
+
+    const result = await createChatResponse({
+      message: "Dame una respuesta larga",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.createResponse).toHaveBeenCalledTimes(2);
+    expect(result.messageId).toBe("resp_continued");
+    expect(result.text).toBe(
+      "Respuesta larga con **un punto importante** y una lista:\n\n- Primer paso\n- Segundo paso",
+    );
+  });
+
+  it("appends a truncation notice when the continuation also ends by max_output_tokens", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse
+      .mockResolvedValueOnce({
+        id: "resp_partial",
+        incomplete_details: {
+          reason: "max_output_tokens",
+        },
+        output: [
+          {
+            content: [
+              {
+                annotations: [],
+                text: "Primera parte de la respuesta.",
+                type: "output_text",
+              },
+            ],
+            id: "message_1",
+            role: "assistant",
+            status: "completed",
+            type: "message",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        id: "resp_still_truncated",
+        incomplete_details: {
+          reason: "max_output_tokens",
+        },
+        output: [
+          {
+            content: [
+              {
+                annotations: [],
+                text: " Segunda parte todavía incompleta.",
+                type: "output_text",
+              },
+            ],
+            id: "message_2",
+            role: "assistant",
+            status: "completed",
+            type: "message",
+          },
+        ],
+      });
+    const createChatResponse = createChatResponseService(deps);
+
+    const result = await createChatResponse({
+      message: "Sigue hasta donde puedas",
+      userId: "user-1",
+    });
+
+    expect(result.text).toBe(
+      `Primera parte de la respuesta. Segunda parte todavía incompleta.${CHAT_RESPONSE_TRUNCATED_NOTICE}`,
+    );
+    expect(result.messageId).toBe("resp_still_truncated");
   });
 
   it("returns a deterministic fallback message when the provider finishes with tool calls but without final text", async () => {

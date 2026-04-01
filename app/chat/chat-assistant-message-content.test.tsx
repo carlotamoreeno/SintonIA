@@ -51,6 +51,28 @@ describe("ChatAssistantMessageContent", () => {
     expect(within(lists[1]).getAllByRole("listitem")).toHaveLength(2);
   });
 
+  it("accepts safe aliases for bold and list markers", () => {
+    render(
+      <ChatAssistantMessageContent
+        content={[
+          "Aplica __riego moderado__.",
+          "",
+          "* Primer punto",
+          "• Segundo punto",
+          "",
+          "1) Observa las hojas",
+        ].join("\n")}
+      />,
+    );
+
+    expect(
+      screen.getByText("riego moderado", {
+        selector: "strong",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("list")).toHaveLength(2);
+  });
+
   it("renders paragraphs and lists as separate blocks", () => {
     const { container } = render(
       <ChatAssistantMessageContent
@@ -100,5 +122,14 @@ describe("ChatAssistantMessageContent", () => {
     expect(
       screen.getByText("`codigo` y [enlace](https://example.com)"),
     ).toBeInTheDocument();
+  });
+
+  it("hides persisted provider file citation artifacts before rendering", () => {
+    render(
+      <ChatAssistantMessageContent content="Consejo útil. fileciteturn0file8turn0file9" />,
+    );
+
+    expect(screen.getByText("Consejo útil.")).toBeInTheDocument();
+    expect(screen.queryByText(/filecite/i)).toBeNull();
   });
 });
