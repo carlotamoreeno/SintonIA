@@ -21,6 +21,11 @@ export const metadata: Metadata = {
   title: "SintonIA",
   description:
     "Laboratorio botanico digital con acceso OAuth y chat documental para SintonIA.",
+  icons: {
+    apple: "/platform/apple-touch-icon.svg",
+    icon: "/brand/sintonia-mark.svg",
+    shortcut: "/brand/sintonia-mark.svg",
+  },
 };
 
 export default function RootLayout({

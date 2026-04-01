@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { SintoniaMark } from "@/components/brand/sintonia-mark";
 import { SintoniaWordmark } from "@/components/brand/sintonia-wordmark";
 import { GoogleSignInForm } from "@/components/auth/google-sign-in-form";
 
@@ -24,14 +25,22 @@ export function SignInPageContent({ callbackUrl }: SignInPageContentProps) {
             <div className="hidden items-center gap-6 sm:flex">
               <span
                 aria-disabled="true"
-                className="botanical-placeholder font-display text-sm font-semibold"
+                className="botanical-placeholder inline-flex items-center gap-2 font-display text-sm font-semibold"
               >
+                <SintoniaMark className="size-4" size={16} />
                 About
               </span>
               <span
                 aria-disabled="true"
-                className="botanical-placeholder font-display text-sm font-semibold"
+                className="botanical-placeholder inline-flex items-center gap-2 font-display text-sm font-semibold"
               >
+                <Image
+                  alt=""
+                  aria-hidden="true"
+                  height={16}
+                  src="/ui/icons/alert.svg"
+                  width={16}
+                />
                 Support
               </span>
             </div>

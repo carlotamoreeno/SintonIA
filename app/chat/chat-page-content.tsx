@@ -1,24 +1,22 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  BadgeHelp,
   Camera,
-  History,
   Leaf,
-  type LucideIcon,
   Menu,
   MessageSquarePlus,
   RotateCcw,
-  Settings,
   Sprout,
-  Stethoscope,
   X,
 } from "lucide-react";
+import { SintoniaMark } from "@/components/brand/sintonia-mark";
+import { SintoniaWordmark } from "@/components/brand/sintonia-wordmark";
 import { SignOutForm } from "@/components/auth/sign-out-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
 import { CHAT_STREAM_ACCEPT_HEADER } from "@/lib/chat/chat-stream";
@@ -117,12 +115,20 @@ const suggestionChips = [
 const welcomeFeatures = [
   {
     body: "Sube una foto para identificar especies al instante.",
-    icon: Camera,
+    icon: <Camera className="size-5 text-[#6d8f7d]" />,
     title: "Identificacion Visual",
   },
   {
     body: "Describe los sintomas para un diagnostico experto.",
-    icon: Stethoscope,
+    icon: (
+      <Image
+        alt=""
+        aria-hidden="true"
+        height={20}
+        src="/ui/icons/diagnosis.svg"
+        width={20}
+      />
+    ),
     title: "Doctor de Plantas",
   },
 ] as const;
@@ -377,6 +383,10 @@ function MessageCitations({ citations }: { citations: ChatCitation[] }) {
   );
 }
 
+function SidebarSvgIcon({ src }: { src: string }) {
+  return <Image alt="" aria-hidden="true" height={16} src={src} width={16} />;
+}
+
 function normalizeCitationSnippet(snippet: string) {
   return snippet
     .replace(/\r\n?/g, "\n")
@@ -466,10 +476,10 @@ function BotanicalWaitingIndicator() {
 
 function PlaceholderSidebarAction({
   children,
-  icon: Icon,
+  icon,
 }: {
   children: string;
-  icon: LucideIcon;
+  icon: ReactNode;
 }) {
   return (
     <button
@@ -479,7 +489,7 @@ function PlaceholderSidebarAction({
       tabIndex={-1}
       type="button"
     >
-      <Icon className="size-4" />
+      {icon}
       <span className="truncate">{children}</span>
     </button>
   );
@@ -503,9 +513,7 @@ function ChatSidebarContent({
   return (
     <div className="flex h-full min-w-0 flex-col overflow-x-hidden p-6">
       <div className="flex items-center justify-between pb-6">
-        <p className="truncate font-semibold leading-7 text-[#274f3d]">
-          Sinton IA
-        </p>
+        <SintoniaWordmark className="shrink-0" />
         {isMobile ? (
           <DrawerClose
             aria-label="Cerrar menu"
@@ -541,7 +549,7 @@ function ChatSidebarContent({
           </Link>
 
           <div className="flex h-9 min-w-0 items-center gap-3 overflow-hidden px-3 text-sm font-medium text-[#566342]">
-            <History className="size-4" />
+            <SidebarSvgIcon src="/ui/icons/history.svg" />
             <span className="truncate">Botanical History</span>
           </div>
         </div>
@@ -595,10 +603,14 @@ function ChatSidebarContent({
         </div>
 
         <div className="space-y-1 pt-2">
-          <PlaceholderSidebarAction icon={Leaf}>
+          <PlaceholderSidebarAction
+            icon={<SidebarSvgIcon src="/ui/icons/species.svg" />}
+          >
             Saved Plants
           </PlaceholderSidebarAction>
-          <PlaceholderSidebarAction icon={Sprout}>
+          <PlaceholderSidebarAction
+            icon={<SidebarSvgIcon src="/ui/icons/sun.svg" />}
+          >
             Care Guides
           </PlaceholderSidebarAction>
         </div>
@@ -616,10 +628,14 @@ function ChatSidebarContent({
         </button>
 
         <div className="mt-6 space-y-1">
-          <PlaceholderSidebarAction icon={Settings}>
+          <PlaceholderSidebarAction
+            icon={<SidebarSvgIcon src="/ui/icons/config.svg" />}
+          >
             Settings
           </PlaceholderSidebarAction>
-          <PlaceholderSidebarAction icon={BadgeHelp}>
+          <PlaceholderSidebarAction
+            icon={<SidebarSvgIcon src="/ui/icons/alert.svg" />}
+          >
             Help
           </PlaceholderSidebarAction>
           <SignOutForm
@@ -630,7 +646,7 @@ function ChatSidebarContent({
 
         <div className="mt-6 flex min-w-0 items-center gap-3 px-2">
           <div className="flex size-8 items-center justify-center rounded-full bg-[#dae8be]">
-            <Leaf className="size-3.5 text-[#566342]" />
+            <SintoniaMark size={16} />
           </div>
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-[#1b1c17]">
@@ -1263,7 +1279,7 @@ export function ChatPageContent({
               </DrawerContent>
             </Drawer>
 
-            <p className="font-semibold text-[#274f3d]">Sinton IA</p>
+            <SintoniaWordmark className="scale-90 origin-left" />
 
             <Link
               className="botanical-focus inline-flex items-center gap-2 rounded-xl bg-[#274f3d] px-4 py-2.5 text-sm font-semibold text-white"
@@ -1309,15 +1325,7 @@ export function ChatPageContent({
                 <>
                   <div className="pb-12 text-center">
                     <div className="mx-auto flex h-[4.09375rem] w-20 items-center justify-center rounded-[1.5rem] bg-white">
-                      <Image
-                        alt=""
-                        aria-hidden="true"
-                        className="size-6"
-                        height={24}
-                        src="/figma/botanical-leaf.svg"
-                        unoptimized
-                        width={24}
-                      />
+                      <SintoniaMark size={24} />
                     </div>
 
                     <h1 className="mt-14 max-w-[42rem] text-balance font-display text-[3rem] font-extrabold leading-[3rem] tracking-[-0.03em] text-[#1b1c17]">
@@ -1346,12 +1354,12 @@ export function ChatPageContent({
                   </div>
 
                   <div className="grid w-full max-w-[30.4375rem] gap-4 opacity-70 sm:grid-cols-2">
-                    {welcomeFeatures.map(({ body, icon: Icon, title }) => (
+                    {welcomeFeatures.map(({ body, icon, title }) => (
                       <article
                         className="rounded-2xl border border-[rgba(191,201,193,0.2)] bg-white p-6"
                         key={title}
                       >
-                        <Icon className="size-5 text-[#6d8f7d]" />
+                        {icon}
                         <h2 className="mt-4 text-sm font-semibold text-[#1b1c17]">
                           {title}
                         </h2>

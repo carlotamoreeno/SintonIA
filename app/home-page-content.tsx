@@ -1,15 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import {
-  ArrowRight,
-  BookOpenCheck,
-  BookOpenText,
-  CalendarClock,
-  Leaf,
-  ScanSearch,
-  Sprout,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { SintoniaMark } from "@/components/brand/sintonia-mark";
 import { SintoniaWordmark } from "@/components/brand/sintonia-wordmark";
 
 export type HomePageUser = {
@@ -29,7 +22,7 @@ const benefits = [
     body: "Resolucion inmediata de problemas. Identifica carencias nutricionales o plagas en segundos con nuestro motor de analisis.",
     cardClassName: "bg-[#f6f4ec] text-[#274f3d]",
     cta: "Explorar funcion",
-    icon: ScanSearch,
+    icon: "/ui/icons/chat.svg",
     iconWrapClassName: "bg-[#274f3d] text-white",
     title: "Dudas rapidas",
   },
@@ -37,7 +30,7 @@ const benefits = [
     body: "Cada planta es unica. Generamos calendarios de riego, abonado y trasplante adaptados a tu microclima local.",
     cardClassName: "bg-[#3f6754] text-white",
     cta: "Configurar perfil",
-    icon: CalendarClock,
+    icon: "/ui/icons/calendar.svg",
     iconWrapClassName: "bg-[#c1ecd4] text-[#274f3d]",
     title: "Cuidados a medida",
   },
@@ -45,7 +38,7 @@ const benefits = [
     body: "Biblioteca botanica curada por expertos. Informacion tecnica presentada de forma clara y aplicable a tu hogar.",
     cardClassName: "bg-[#e4e2db] text-[#274f3d]",
     cta: "Ver biblioteca",
-    icon: BookOpenText,
+    icon: "/ui/icons/species.svg",
     iconWrapClassName: "bg-[#703800] text-white",
     title: "Acceso directo al conocimiento",
   },
@@ -54,12 +47,12 @@ const benefits = [
 const methodologyHighlights = [
   {
     body: "Fuentes academicas procesadas para el aficionado moderno.",
-    icon: BookOpenCheck,
+    icon: "/ui/icons/success.svg",
     title: "Base de datos rigurosa",
   },
   {
     body: "Visualiza el crecimiento y la salud de tu coleccion a traves del tiempo.",
-    icon: Sprout,
+    icon: "/ui/icons/species.svg",
     title: "Seguimiento evolutivo",
   },
 ] as const;
@@ -133,7 +126,7 @@ function BenefitCard({
   body,
   cardClassName,
   cta,
-  icon: Icon,
+  icon,
   iconWrapClassName,
   title,
 }: (typeof benefits)[number]) {
@@ -144,7 +137,7 @@ function BenefitCard({
       <div
         className={`mb-8 flex size-16 items-center justify-center rounded-2xl ${iconWrapClassName}`}
       >
-        <Icon className="size-6" />
+        <Image alt="" aria-hidden="true" height={24} src={icon} width={24} />
       </div>
       <h3 className="font-display text-2xl font-bold leading-8">{title}</h3>
       <p className="mt-4 flex-1 text-base leading-[1.625rem] opacity-80">
@@ -183,7 +176,7 @@ export function HomePageContent({
           <div className="relative mx-auto grid w-full max-w-[1400px] items-center gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(420px,469px)]">
             <div className="max-w-[42.75rem]">
               <span className="inline-flex items-center gap-2 rounded-full bg-[#d7e5bb] px-4 py-2 text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-[#5a6745]">
-                <Leaf className="size-3.5" />
+                <SintoniaMark className="size-4" size={16} />
                 Inteligencia Botanica
               </span>
 
@@ -229,15 +222,7 @@ export function HomePageContent({
               <div className="botanical-glass absolute -bottom-10 left-0 max-w-[17.5rem] rounded-2xl p-8 sm:-left-8">
                 <div className="flex items-center gap-4">
                   <div className="flex size-12 items-center justify-center rounded-full bg-[#c1ecd4]">
-                    <Image
-                      alt=""
-                      aria-hidden="true"
-                      className="size-5"
-                      height={20}
-                      src="/figma/botanical-leaf.svg"
-                      unoptimized
-                      width={20}
-                    />
+                    <SintoniaMark className="size-5" />
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[-0.05em] text-[#566342]">
@@ -313,9 +298,16 @@ export function HomePageContent({
               </h2>
 
               <div className="mt-10 space-y-8">
-                {methodologyHighlights.map(({ body, icon: Icon, title }) => (
+                {methodologyHighlights.map(({ body, icon, title }) => (
                   <div className="flex gap-6" key={title}>
-                    <Icon className="mt-1 size-6 shrink-0 text-[#274f3d]" />
+                    <Image
+                      alt=""
+                      aria-hidden="true"
+                      className="mt-1 shrink-0"
+                      height={24}
+                      src={icon}
+                      width={24}
+                    />
                     <div>
                       <h3 className="font-display text-xl font-bold leading-7 text-[#274f3d]">
                         {title}
