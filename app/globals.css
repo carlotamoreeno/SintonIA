@@ -144,6 +144,28 @@
 }
 
 @layer utilities {
+  @keyframes botanical-sway {
+    0%,
+    100% {
+      transform: rotate(-6deg) translateY(0);
+    }
+    50% {
+      transform: rotate(6deg) translateY(-2px);
+    }
+  }
+
+  @keyframes botanical-bloom {
+    0%,
+    100% {
+      transform: scale(0.92);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scale(1.08);
+      opacity: 1;
+    }
+  }
+
   .font-display {
     font-family: var(--font-manrope), sans-serif;
   }

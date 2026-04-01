@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { UNAUTHENTICATED_API_MESSAGE } from "@/lib/auth/access";
 import { getOptionalAppSession } from "@/lib/auth/app-session";
 import {
+  CHAT_STREAM_CONTENT_TYPE,
+  isChatStreamingRequest,
+  serializeChatStreamEvent,
+} from "@/lib/chat/chat-stream";
+import {
   buildInvalidChatRequestPayload,
   buildInvalidChatRequestPayloadFromZodError,
   chatRequestBodySchema,
@@ -15,6 +20,7 @@ import {
   createChatResponse,
   CreateChatResponseError,
 } from "@/lib/chat/create-chat-response";
+import { createChatResponseStream } from "@/lib/chat/create-chat-response-stream";
 import { chatRateLimitStore } from "@/lib/supabase/chat-rate-limit-store";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +81,68 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (isChatStreamingRequest(request)) {
+      const preparedStream = await createChatResponseStream({
+        conversationId: parsedBody.data.conversationId,
+        message: parsedBody.data.message,
+        userId: appSession.persistedIdentity.user.id,
+      });
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const enqueueEvent = (
+            value: Parameters<typeof serializeChatStreamEvent>[0],
+          ) => {
+            controller.enqueue(encoder.encode(serializeChatStreamEvent(value)));
+          };
+
+          try {
+            enqueueEvent({
+              conversationId: preparedStream.context.resolvedConversationId,
+              type: "conversation",
+            });
+
+            for await (const event of preparedStream.stream) {
+              if (
+                event.type === "response.output_text.delta" &&
+                event.delta.trim().length > 0
+              ) {
+                enqueueEvent({
+                  delta: event.delta,
+                  type: "assistant_delta",
+                });
+              }
+            }
+
+            const response = await preparedStream.finalize();
+
+            enqueueEvent({
+              ...response,
+              type: "done",
+            });
+          } catch (error) {
+            enqueueEvent({
+              message:
+                error instanceof CreateChatResponseError
+                  ? error.message
+                  : UPSTREAM_CHAT_ERROR_MESSAGE,
+              type: "error",
+            });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": CHAT_STREAM_CONTENT_TYPE,
+        },
+        status: 200,
+      });
+    }
+
     const response = await createChatResponse({
       conversationId: parsedBody.data.conversationId,
       message: parsedBody.data.message,

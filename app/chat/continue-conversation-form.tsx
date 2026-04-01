@@ -4,12 +4,12 @@ import { useState } from "react";
 import { ChatComposerForm } from "./chat-composer-form";
 
 type ContinueConversationFormProps = {
-  conversationId: string;
+  conversationId?: string;
   isPending: boolean;
   maxMessageChars: number;
   message: string;
   onMessageChange(message: string): void;
-  onSubmitMessage(input: { conversationId: string; message: string }): boolean;
+  onSubmitMessage(input: { conversationId?: string; message: string }): boolean;
 };
 
 function getContinueConversationValidationError(

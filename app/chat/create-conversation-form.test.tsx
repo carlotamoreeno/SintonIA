@@ -1,39 +1,24 @@
 import * as React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CreateConversationForm } from "./create-conversation-form";
 
-const useActionStateMock = vi.hoisted(() => vi.fn());
-
-vi.mock("react", async () => {
-  const actual = await vi.importActual<typeof import("react")>("react");
-
-  return {
-    ...actual,
-    useActionState: useActionStateMock,
-  };
-});
-
-vi.mock("./actions", () => ({
-  createConversationAction: vi.fn(),
-}));
-
-type MockCreateConversationFormState = {
-  error: string | null;
-  message: string;
-};
-
-const formActionMock = vi.fn();
-let mockFormState: MockCreateConversationFormState;
-
-function ControlledComposerHarness() {
+function ControlledCreateConversationHarness({
+  isPending = false,
+  onSubmitMessage = vi.fn(() => true),
+}: {
+  isPending?: boolean;
+  onSubmitMessage?: (input: { message: string }) => boolean;
+}) {
   const [message, setMessage] = React.useState("");
 
   return (
     <CreateConversationForm
+      isPending={isPending}
       maxMessageChars={4000}
       message={message}
       onMessageChange={setMessage}
+      onSubmitMessage={onSubmitMessage}
     />
   );
 }
@@ -41,18 +26,10 @@ function ControlledComposerHarness() {
 describe("CreateConversationForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFormState = {
-      error: null,
-      message: "",
-    };
-
-    useActionStateMock.mockImplementation(
-      () => [mockFormState, formActionMock, false] as const,
-    );
   });
 
-  it("keeps the typed draft after rerenders when the action state has not changed", () => {
-    render(<ControlledComposerHarness />);
+  it("keeps the typed draft after rerenders", () => {
+    render(<ControlledCreateConversationHarness />);
 
     const textarea = screen.getByRole("textbox", {
       name: /escribe tu duda aqui/i,
@@ -67,8 +44,34 @@ describe("CreateConversationForm", () => {
     expect(textarea).toHaveValue("Consulta estable");
   });
 
-  it("rehydrates the textarea when the action returns a validation error", async () => {
-    const { rerender } = render(<ControlledComposerHarness />);
+  it("shows a validation error when the message is empty after trimming", () => {
+    const onSubmitMessage = vi.fn(() => true);
+    render(
+      <ControlledCreateConversationHarness onSubmitMessage={onSubmitMessage} />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: {
+        value: "   ",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /crear conversacion/i,
+      }),
+    );
+
+    expect(onSubmitMessage).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Escribe un mensaje para iniciar la conversacion."),
+    ).toBeInTheDocument();
+  });
+
+  it("submits trimmed first turns and clears the draft when the request is accepted", () => {
+    const onSubmitMessage = vi.fn(() => true);
+    render(
+      <ControlledCreateConversationHarness onSubmitMessage={onSubmitMessage} />,
+    );
 
     const textarea = screen.getByRole("textbox", {
       name: /escribe tu duda aqui/i,
@@ -76,23 +79,18 @@ describe("CreateConversationForm", () => {
 
     fireEvent.change(textarea, {
       target: {
-        value: "Borrador local",
+        value: "  Consulta de arranque  ",
       },
     });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /crear conversacion/i,
+      }),
+    );
 
-    mockFormState = {
-      error: "Escribe un mensaje para iniciar la conversacion.",
-      message: "   ",
-    };
-
-    rerender(<ControlledComposerHarness />);
-
-    await waitFor(() => {
-      expect(textarea).toHaveValue("   ");
+    expect(onSubmitMessage).toHaveBeenCalledWith({
+      message: "Consulta de arranque",
     });
-
-    expect(
-      screen.getByText("Escribe un mensaje para iniciar la conversacion."),
-    ).toBeInTheDocument();
+    expect(textarea).toHaveValue("");
   });
 });

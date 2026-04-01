@@ -1,6 +1,7 @@
 "use client";
 
-import type { FormEventHandler } from "react";
+import { useRef } from "react";
+import type { FormEventHandler, KeyboardEvent } from "react";
 import { LoaderCircle, Mic, Plus, SendHorizontal } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -30,9 +31,25 @@ export function ChatComposerForm({
   submitIdleLabel,
   submitPendingLabel,
 }: ChatComposerFormProps) {
+  const isComposingRef = useRef(false);
   const noteId = `${formId}-note`;
   const limitId = `${formId}-limit`;
   const errorId = `${formId}-error`;
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      isPending ||
+      isComposingRef.current ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
 
   return (
     <form action={action} className="space-y-3" id={formId} onSubmit={onSubmit}>
@@ -63,6 +80,13 @@ export function ChatComposerForm({
               maxLength={maxMessageChars}
               name="message"
               onChange={(event) => onMessageChange(event.target.value)}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+              }}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onKeyDown={handleKeyDown}
               placeholder="Escribe tu duda aqui..."
               required
               rows={1}

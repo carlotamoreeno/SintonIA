@@ -10,6 +10,13 @@ export type OpenAIResponsesCreateOptions = Parameters<
 export type OpenAIResponsesCreateResult = Awaited<
   ReturnType<OpenAI["responses"]["create"]>
 >;
+export type OpenAIResponsesStreamParams = Parameters<
+  OpenAI["responses"]["stream"]
+>[0];
+export type OpenAIResponsesStreamOptions = Parameters<
+  OpenAI["responses"]["stream"]
+>[1];
+export type OpenAIResponsesStream = ReturnType<OpenAI["responses"]["stream"]>;
 
 export type OpenAIFilesCreateParams = Parameters<OpenAI["files"]["create"]>[0];
 export type OpenAIFilesCreateOptions = Parameters<OpenAI["files"]["create"]>[1];
@@ -105,7 +112,7 @@ export type OpenAIAdapterClient = {
     OpenAIClient["files"],
     "create" | "delete" | "retrieve" | "waitForProcessing"
   >;
-  responses: Pick<OpenAIClient["responses"], "create">;
+  responses: Pick<OpenAIClient["responses"], "create" | "stream">;
   vectorStores: Pick<
     OpenAIClient["vectorStores"],
     "create" | "delete" | "retrieve" | "search"
@@ -119,6 +126,10 @@ export type OpenAIAdapter = {
     body: OpenAIResponsesCreateParams,
     options?: OpenAIResponsesCreateOptions,
   ): Promise<OpenAIResponsesCreateResult>;
+  streamResponse(
+    body: OpenAIResponsesStreamParams,
+    options?: OpenAIResponsesStreamOptions,
+  ): OpenAIResponsesStream;
   createFile(
     body: OpenAIFilesCreateParams,
     options?: OpenAIFilesCreateOptions,
@@ -264,6 +275,14 @@ export function createOpenAIAdapter(
   return {
     async createResponse(body, options) {
       return executeOpenAIRequest(() => client.responses.create(body, options));
+    },
+
+    streamResponse(body, options) {
+      try {
+        return client.responses.stream(body, options);
+      } catch (error) {
+        throw toOpenAIAdapterError(error);
+      }
     },
 
     async createFile(body, options) {

@@ -1,48 +1,81 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
-import { createConversationAction } from "./actions";
+import { useState } from "react";
 import { ChatComposerForm } from "./chat-composer-form";
-import { initialCreateConversationFormState } from "./create-conversation-form-state";
 
 type CreateConversationFormProps = {
+  isPending: boolean;
   maxMessageChars: number;
   message: string;
   onMessageChange(message: string): void;
+  onSubmitMessage(input: { message: string }): boolean;
 };
 
+function getCreateConversationValidationError(
+  message: string,
+  maxMessageChars: number,
+) {
+  const normalizedMessage = message.trim();
+
+  if (normalizedMessage.length === 0) {
+    return "Escribe un mensaje para iniciar la conversacion.";
+  }
+
+  if (normalizedMessage.length > maxMessageChars) {
+    return `El mensaje no puede superar ${maxMessageChars} caracteres.`;
+  }
+
+  return null;
+}
+
 export function CreateConversationForm({
+  isPending,
   maxMessageChars,
   message,
   onMessageChange,
+  onSubmitMessage,
 }: CreateConversationFormProps) {
-  const [state, formAction, isPending] = useActionState(
-    createConversationAction,
-    initialCreateConversationFormState,
-  );
-  const previousActionStateRef = useRef(state);
-
-  useEffect(() => {
-    if (previousActionStateRef.current === state) {
-      return;
-    }
-
-    previousActionStateRef.current = state;
-
-    if (state.message !== message) {
-      onMessageChange(state.message);
-    }
-  }, [message, onMessageChange, state]);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <ChatComposerForm
-      action={formAction}
-      error={state.error}
+      error={error}
       formId="create-conversation-form"
       isPending={isPending}
       maxMessageChars={maxMessageChars}
       message={message}
-      onMessageChange={onMessageChange}
+      onMessageChange={(nextMessage) => {
+        if (error !== null) {
+          setError(null);
+        }
+
+        onMessageChange(nextMessage);
+      }}
+      onSubmit={(event) => {
+        event.preventDefault();
+
+        const validationError = getCreateConversationValidationError(
+          message,
+          maxMessageChars,
+        );
+
+        if (validationError) {
+          setError(validationError);
+          return;
+        }
+
+        const normalizedMessage = message.trim();
+        const accepted = onSubmitMessage({
+          message: normalizedMessage,
+        });
+
+        if (!accepted) {
+          return;
+        }
+
+        setError(null);
+        onMessageChange("");
+      }}
       submitIdleLabel="Crear conversacion"
       submitPendingLabel="Guardando conversacion"
     />

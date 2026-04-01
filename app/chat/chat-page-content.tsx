@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -10,7 +10,6 @@ import {
   Camera,
   History,
   Leaf,
-  LoaderCircle,
   type LucideIcon,
   Menu,
   MessageSquarePlus,
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 import { SignOutForm } from "@/components/auth/sign-out-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
+import { CHAT_STREAM_ACCEPT_HEADER } from "@/lib/chat/chat-stream";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -33,6 +33,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/roles";
 import type { PersistedConversationHistoryConversation } from "@/lib/supabase/conversation-store";
+import { ChatAssistantMessageContent } from "./chat-assistant-message-content";
+import { readChatEventStream } from "./chat-stream-client";
 import { ContinueConversationForm } from "./continue-conversation-form";
 import { CreateConversationForm } from "./create-conversation-form";
 
@@ -55,11 +57,12 @@ type TransientConversationMessage = {
   citations?: ChatCitation[];
   content: string;
   createdAt: string;
-  deliveryStatus: "pending" | "failed" | "ready";
+  deliveryStatus: "failed" | "pending" | "ready" | "streaming";
   errorMessage?: string | null;
   grounded?: boolean;
   id: string;
   messageId?: string;
+  requestMessage?: string;
   role: "user" | "assistant" | "system";
 };
 
@@ -67,11 +70,12 @@ type DisplayConversationMessage = {
   citations?: ChatCitation[];
   content: string;
   createdAt: string;
-  deliveryStatus: "pending" | "failed" | "ready";
+  deliveryStatus: "failed" | "pending" | "ready" | "streaming";
   errorMessage?: string | null;
   grounded?: boolean;
   id: string;
   messageId?: string;
+  requestMessage?: string;
   role: "user" | "assistant" | "system";
 };
 
@@ -100,6 +104,8 @@ const GENERIC_CHAT_RESPONSE_ERROR_MESSAGE =
   "La respuesta del chat no llego con un formato valido.";
 const REAUTHENTICATION_CHAT_MESSAGE =
   "Tu sesion ha caducado. Inicia sesion para continuar.";
+const LOCAL_CONVERSATION_ID_PREFIX = "local-conversation";
+const MAX_LOCAL_CONVERSATION_TITLE_LENGTH = 80;
 
 const suggestionChips = [
   "Cuidado de suculentas",
@@ -126,6 +132,7 @@ const roleLabels: Record<AppRole, string> = {
   expert: "Expert Tier",
   user: "Starter Tier",
 };
+export const MAX_SIDEBAR_CONVERSATION_LABEL_LENGTH = 32;
 
 function formatTimestamp(timestamp: string | null) {
   if (!timestamp) {
@@ -144,6 +151,23 @@ function resolveConversationLabel(
   return conversation.title ?? "Conversacion sin titulo";
 }
 
+export function truncateSidebarConversationLabel(
+  label: string,
+  maxLength = MAX_SIDEBAR_CONVERSATION_LABEL_LENGTH,
+) {
+  const normalizedLabel = label.trim();
+
+  if (normalizedLabel.length <= maxLength) {
+    return normalizedLabel;
+  }
+
+  if (maxLength <= 3) {
+    return "...".slice(0, maxLength);
+  }
+
+  return `${normalizedLabel.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
 function createTransientMessageId(prefix: string) {
   if (
     typeof globalThis.crypto !== "undefined" &&
@@ -153,6 +177,90 @@ function createTransientMessageId(prefix: string) {
   }
 
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function isLocalConversationId(conversationId: string) {
+  return conversationId.startsWith(`${LOCAL_CONVERSATION_ID_PREFIX}-`);
+}
+
+function normalizeLocalConversationTitle(message: string) {
+  const normalizedMessage = message.trim().replace(/\s+/g, " ");
+
+  if (normalizedMessage.length <= MAX_LOCAL_CONVERSATION_TITLE_LENGTH) {
+    return normalizedMessage;
+  }
+
+  if (MAX_LOCAL_CONVERSATION_TITLE_LENGTH <= 3) {
+    return "...".slice(0, MAX_LOCAL_CONVERSATION_TITLE_LENGTH);
+  }
+
+  return `${normalizedMessage
+    .slice(0, MAX_LOCAL_CONVERSATION_TITLE_LENGTH - 3)
+    .trimEnd()}...`;
+}
+
+function createLocalConversation(message: string) {
+  const timestamp = new Date().toISOString();
+
+  return {
+    createdAt: timestamp,
+    id: createTransientMessageId(LOCAL_CONVERSATION_ID_PREFIX),
+    lastMessageAt: timestamp,
+    messages: [],
+    status: "active",
+    title: normalizeLocalConversationTitle(message),
+    updatedAt: timestamp,
+  } satisfies PersistedConversationHistoryConversation;
+}
+
+function upsertConversationInHistory(
+  history: PersistedConversationHistoryConversation[],
+  conversation: PersistedConversationHistoryConversation,
+) {
+  return [
+    conversation,
+    ...history.filter(
+      (existingConversation) => existingConversation.id !== conversation.id,
+    ),
+  ];
+}
+
+function replaceConversationIdInHistory(
+  history: PersistedConversationHistoryConversation[],
+  previousConversationId: string,
+  nextConversationId: string,
+) {
+  return history.map((conversation) =>
+    conversation.id === previousConversationId
+      ? {
+          ...conversation,
+          id: nextConversationId,
+        }
+      : conversation,
+  );
+}
+
+function mergeServerHistoryWithLocalState(
+  localHistory: PersistedConversationHistoryConversation[],
+  serverHistory: PersistedConversationHistoryConversation[],
+) {
+  const localConversationsById = new Map(
+    localHistory.map((conversation) => [conversation.id, conversation]),
+  );
+  const serverConversationIds = new Set(
+    serverHistory.map((conversation) => conversation.id),
+  );
+  const localOnlyConversations = localHistory.filter(
+    (conversation) => !serverConversationIds.has(conversation.id),
+  );
+
+  return [
+    ...localOnlyConversations,
+    ...serverHistory.map(
+      (conversation) =>
+        localConversationsById.get(conversation.id) ?? conversation,
+    ),
+  ];
 }
 
 function getConversationUiState(
@@ -243,52 +351,46 @@ function getChatErrorMessage(status: number, payload: unknown) {
   return GENERIC_CHAT_REQUEST_ERROR_MESSAGE;
 }
 
-function isChatCitationPayload(value: unknown): value is ChatCitation {
+function MessageCitations({ citations }: { citations: ChatCitation[] }) {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    "documentId" in value &&
-    typeof value.documentId === "string" &&
-    value.documentId.trim().length > 0 &&
-    "documentName" in value &&
-    typeof value.documentName === "string" &&
-    value.documentName.trim().length > 0 &&
-    "fileId" in value &&
-    typeof value.fileId === "string" &&
-    value.fileId.trim().length > 0 &&
-    "snippet" in value &&
-    typeof value.snippet === "string" &&
-    value.snippet.trim().length > 0 &&
-    "vectorStoreId" in value &&
-    typeof value.vectorStoreId === "string" &&
-    value.vectorStoreId.trim().length > 0
+    <section
+      aria-label="Fuentes del mensaje"
+      className="mt-4 rounded-[1.25rem] border border-[rgba(191,201,193,0.45)] bg-[#f7f5ee] p-4"
+    >
+      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-[#566342]">
+        Fuentes
+      </p>
+      <ol className="mt-3 space-y-3">
+        {citations.map((citation, index) => (
+          <li
+            className="rounded-2xl border border-[rgba(191,201,193,0.35)] bg-white px-4 py-3"
+            key={`${citation.fileId}-${index}`}
+          >
+            <p className="text-sm font-semibold text-[#274f3d]">
+              {citation.documentName}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-[#404943]">
+              {citation.snippet}
+            </p>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
-function isChatResponsePayload(value: unknown): value is {
-  citations: ChatCitation[];
-  conversationId: string;
-  grounded: boolean;
-  messageId: string;
-  text: string;
-} {
+function BotanicalWaitingIndicator() {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    "citations" in value &&
-    Array.isArray(value.citations) &&
-    value.citations.every(isChatCitationPayload) &&
-    "conversationId" in value &&
-    typeof value.conversationId === "string" &&
-    value.conversationId.trim().length > 0 &&
-    "grounded" in value &&
-    typeof value.grounded === "boolean" &&
-    "messageId" in value &&
-    typeof value.messageId === "string" &&
-    value.messageId.trim().length > 0 &&
-    "text" in value &&
-    typeof value.text === "string" &&
-    value.text.trim().length > 0
+    <div
+      aria-live="polite"
+      className="inline-flex items-center gap-3 rounded-full border border-[rgba(191,201,193,0.45)] bg-[#f7f5ee] px-4 py-2 text-xs font-medium text-[#566342]"
+    >
+      <div className="relative flex items-center gap-1">
+        <Leaf className="size-3.5 animate-[botanical-sway_1.6s_ease-in-out_infinite]" />
+        <Sprout className="size-3.5 animate-[botanical-bloom_1.2s_ease-in-out_infinite]" />
+      </div>
+      <span>Preparando respuesta…</span>
+    </div>
   );
 }
 
@@ -302,13 +404,13 @@ function PlaceholderSidebarAction({
   return (
     <button
       aria-disabled="true"
-      className="botanical-placeholder inline-flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium"
+      className="botanical-placeholder inline-flex h-9 w-full min-w-0 items-center gap-3 overflow-hidden rounded-lg px-3 text-left text-sm font-medium"
       disabled
       tabIndex={-1}
       type="button"
     >
       <Icon className="size-4" />
-      <span>{children}</span>
+      <span className="truncate">{children}</span>
     </button>
   );
 }
@@ -316,18 +418,24 @@ function PlaceholderSidebarAction({
 function ChatSidebarContent({
   history,
   isMobile,
+  onSelectConversation,
+  onSelectNewChat,
   selectedConversationId,
   user,
 }: {
   history: PersistedConversationHistoryConversation[];
   isMobile?: boolean;
+  onSelectConversation?(conversationId: string): void;
+  onSelectNewChat?(): void;
   selectedConversationId: string | null;
   user: ChatPageUser;
 }) {
   return (
-    <div className="flex h-full flex-col p-6">
+    <div className="flex h-full min-w-0 flex-col overflow-x-hidden p-6">
       <div className="flex items-center justify-between pb-6">
-        <p className="font-semibold leading-7 text-[#274f3d]">Greenhouse Lab</p>
+        <p className="truncate font-semibold leading-7 text-[#274f3d]">
+          Sinton IA
+        </p>
         {isMobile ? (
           <DrawerClose
             aria-label="Cerrar menu"
@@ -338,29 +446,37 @@ function ChatSidebarContent({
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden">
         <div className="space-y-1">
           <Link
             aria-current={selectedConversationId ? undefined : "page"}
             className={cn(
-              "botanical-focus flex h-9 items-center gap-3 rounded-lg px-3 text-sm font-medium transition",
+              "botanical-focus flex h-9 min-w-0 items-center gap-3 overflow-hidden rounded-lg px-3 text-sm font-medium transition",
               selectedConversationId
                 ? "text-[#566342] hover:bg-white/65"
                 : "bg-[#e4e2db] text-[#274f3d]",
             )}
             href="/chat"
+            onClick={(event) => {
+              if (!onSelectNewChat) {
+                return;
+              }
+
+              event.preventDefault();
+              onSelectNewChat();
+            }}
           >
             <MessageSquarePlus className="size-4" />
-            <span>New Chat</span>
+            <span className="truncate">New Chat</span>
           </Link>
 
-          <div className="flex h-9 items-center gap-3 px-3 text-sm font-medium text-[#566342]">
+          <div className="flex h-9 min-w-0 items-center gap-3 overflow-hidden px-3 text-sm font-medium text-[#566342]">
             <History className="size-4" />
-            <span>Botanical History</span>
+            <span className="truncate">Botanical History</span>
           </div>
         </div>
 
-        <div className="space-y-3 px-3">
+        <div className="min-w-0 space-y-3 px-3">
           <p className="text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-[#707973]">
             Recent inquiries
           </p>
@@ -372,21 +488,35 @@ function ChatSidebarContent({
             ) : (
               history.map((conversation) => {
                 const isActive = conversation.id === selectedConversationId;
+                const conversationLabel =
+                  resolveConversationLabel(conversation);
+                const sidebarConversationLabel =
+                  truncateSidebarConversationLabel(conversationLabel);
 
                 return (
                   <Link
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "botanical-focus block truncate rounded-lg px-2 py-1 text-sm leading-5 transition",
+                      "botanical-focus block w-full min-w-0 rounded-lg px-2 py-1 text-sm leading-5 transition",
                       isActive
                         ? "bg-white/80 font-medium text-[#274f3d]"
                         : "text-[#404943] hover:bg-white/65",
                     )}
                     href={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
                     key={conversation.id}
-                    title={resolveConversationLabel(conversation)}
+                    onClick={(event) => {
+                      if (!onSelectConversation) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      onSelectConversation(conversation.id);
+                    }}
+                    title={conversationLabel}
                   >
-                    {resolveConversationLabel(conversation)}
+                    <span className="block truncate">
+                      {sidebarConversationLabel}
+                    </span>
                   </Link>
                 );
               })
@@ -407,12 +537,12 @@ function ChatSidebarContent({
       <div className="mt-6 border-t border-[rgba(191,201,193,0.3)] pt-6">
         <button
           aria-disabled="true"
-          className="botanical-focus inline-flex h-11 w-full cursor-default items-center justify-center rounded-xl bg-[#274f3d] px-4 text-sm font-semibold text-white shadow-[0_10px_15px_-3px_rgba(39,79,61,0.1),0_4px_6px_-4px_rgba(39,79,61,0.1)]"
+          className="botanical-focus inline-flex h-11 w-full min-w-0 cursor-default items-center justify-center overflow-hidden rounded-xl bg-[#274f3d] px-4 text-sm font-semibold text-white shadow-[0_10px_15px_-3px_rgba(39,79,61,0.1),0_4px_6px_-4px_rgba(39,79,61,0.1)]"
           disabled
           tabIndex={-1}
           type="button"
         >
-          Upgrade to Pro
+          <span className="truncate">Upgrade to Pro</span>
         </button>
 
         <div className="mt-6 space-y-1">
@@ -428,15 +558,15 @@ function ChatSidebarContent({
           />
         </div>
 
-        <div className="mt-6 flex items-center gap-3 px-2">
+        <div className="mt-6 flex min-w-0 items-center gap-3 px-2">
           <div className="flex size-8 items-center justify-center rounded-full bg-[#dae8be]">
             <Leaf className="size-3.5 text-[#566342]" />
           </div>
-          <div>
-            <p className="text-xs font-semibold text-[#1b1c17]">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-[#1b1c17]">
               {roleLabels[user.role]}
             </p>
-            <p className="text-[0.625rem] leading-5 text-[#707973]">
+            <p className="truncate text-[0.625rem] leading-5 text-[#707973]">
               {user.name ?? user.email ?? "Perfil activo"}
             </p>
           </div>
@@ -481,6 +611,14 @@ function ConversationView({
           const isUser = message.role === "user";
           const isFailed = message.deliveryStatus === "failed";
           const isPending = message.deliveryStatus === "pending";
+          const isStreaming = message.deliveryStatus === "streaming";
+          const citations = message.citations ?? [];
+          const shouldRenderCitations =
+            message.role === "assistant" && citations.length > 0;
+          const shouldRenderBotanicalWaitingIndicator =
+            message.role === "assistant" &&
+            isPending &&
+            message.content.trim().length === 0;
 
           return (
             <div
@@ -508,20 +646,23 @@ function ConversationView({
                   <span>{message.role}</span>
                   <span>{formatTimestamp(message.createdAt)}</span>
                 </div>
-                <p className="whitespace-pre-wrap text-sm leading-7">
-                  {message.content}
-                </p>
-                {isPending ? (
-                  <p
-                    aria-live="polite"
-                    className={cn(
-                      "mt-3 inline-flex items-center gap-2 text-xs font-medium",
-                      isUser ? "text-white/75" : "text-[#566342]",
-                    )}
-                  >
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                    <span>Enviando...</span>
+                {shouldRenderBotanicalWaitingIndicator ? (
+                  <BotanicalWaitingIndicator />
+                ) : message.role === "assistant" ? (
+                  <ChatAssistantMessageContent content={message.content} />
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm leading-7">
+                    {message.content}
                   </p>
+                )}
+                {message.role === "assistant" && isStreaming ? (
+                  <div className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-[#566342]">
+                    <Leaf className="size-3.5 animate-[botanical-sway_1.6s_ease-in-out_infinite]" />
+                    <span>Escribiendo…</span>
+                  </div>
+                ) : null}
+                {shouldRenderCitations ? (
+                  <MessageCitations citations={citations} />
                 ) : null}
                 {isFailed ? (
                   <div
@@ -563,19 +704,36 @@ export function ChatPageContent({
   user,
 }: ChatPageContentProps) {
   const router = useRouter();
+  const [isRoutePending, startTransition] = useTransition();
   const [draftMessage, setDraftMessage] = useState("");
+  const [localHistory, setLocalHistory] = useState<
+    PersistedConversationHistoryConversation[]
+  >([]);
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null | undefined
+  >(undefined);
   const [conversationUiStateById, setConversationUiStateById] = useState<
     Record<string, ConversationUiState | undefined>
   >({});
+  const displayHistory = mergeServerHistoryWithLocalState(
+    localHistory,
+    history,
+  );
+  const effectiveConversationId =
+    activeConversationId === undefined
+      ? selectedConversationId
+      : activeConversationId;
   const selectedConversation =
-    history.find(
-      (conversation) => conversation.id === selectedConversationId,
+    displayHistory.find(
+      (conversation) => conversation.id === effectiveConversationId,
     ) ?? null;
   const hasMissingConversation =
-    selectedConversationId !== null && selectedConversation === null;
+    effectiveConversationId !== null &&
+    selectedConversation === null &&
+    !isRoutePending;
   const selectedConversationUiState = getConversationUiState(
     conversationUiStateById,
-    selectedConversationId,
+    effectiveConversationId,
   );
   const selectedConversationMessages = selectedConversation
     ? getDisplayConversationMessages(
@@ -596,158 +754,343 @@ export function ChatPageContent({
     }));
   }
 
-  async function sendConversationMessageRequest(input: {
+  function moveConversationUiState(
+    previousConversationId: string,
+    nextConversationId: string,
+  ) {
+    if (previousConversationId === nextConversationId) {
+      return;
+    }
+
+    setConversationUiStateById((currentState) => {
+      const previousConversationState = currentState[previousConversationId];
+
+      if (!previousConversationState) {
+        return currentState;
+      }
+
+      const remainingState = { ...currentState };
+      delete remainingState[previousConversationId];
+
+      return {
+        ...remainingState,
+        [nextConversationId]:
+          currentState[nextConversationId] ?? previousConversationState,
+      };
+    });
+  }
+
+  function upsertLocalConversation(
+    conversation: PersistedConversationHistoryConversation,
+  ) {
+    setLocalHistory((currentHistory) =>
+      upsertConversationInHistory(currentHistory, conversation),
+    );
+  }
+
+  function markConversationActivity(conversationId: string, timestamp: string) {
+    setLocalHistory((currentHistory) => {
+      const existingConversation = currentHistory.find(
+        (conversation) => conversation.id === conversationId,
+      );
+
+      if (!existingConversation) {
+        return currentHistory;
+      }
+
+      return upsertConversationInHistory(currentHistory, {
+        ...existingConversation,
+        lastMessageAt: timestamp,
+        updatedAt: timestamp,
+      });
+    });
+  }
+
+  function renameLocalConversation(
+    previousConversationId: string,
+    nextConversationId: string,
+  ) {
+    setLocalHistory((currentHistory) =>
+      replaceConversationIdInHistory(
+        currentHistory,
+        previousConversationId,
+        nextConversationId,
+      ),
+    );
+  }
+
+  function markAssistantMessageFailed(input: {
     conversationId: string;
-    localMessageId: string;
+    errorMessage: string;
+    localAssistantMessageId: string;
+  }) {
+    updateConversationUiState(input.conversationId, (state) => ({
+      isSubmitting: false,
+      messages: state.messages.map((message) =>
+        message.id === input.localAssistantMessageId
+          ? {
+              ...message,
+              deliveryStatus: "failed" as const,
+              errorMessage: input.errorMessage,
+            }
+          : message,
+      ),
+    }));
+  }
+
+  async function readJsonSafely(response: Response) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function sendConversationMessageStreamRequest(input: {
+    conversationId?: string;
+    localAssistantMessageId: string;
+    localConversationId: string;
     message: string;
   }) {
+    let resolvedConversationId = input.localConversationId;
+
     try {
       const response = await fetch("/api/chat", {
         body: JSON.stringify({
-          conversationId: input.conversationId,
+          conversationId:
+            input.conversationId && !isLocalConversationId(input.conversationId)
+              ? input.conversationId
+              : undefined,
           message: input.message,
         }),
         headers: {
+          accept: CHAT_STREAM_ACCEPT_HEADER,
           "content-type": "application/json",
         },
         method: "POST",
       });
 
-      let payload: unknown = null;
-
-      try {
-        payload = await response.json();
-      } catch {
-        payload = null;
-      }
-
       if (response.status === 401) {
-        updateConversationUiState(input.conversationId, (state) => ({
-          isSubmitting: false,
-          messages: state.messages.map((message) =>
-            message.id === input.localMessageId
-              ? {
-                  ...message,
-                  deliveryStatus: "failed" as const,
-                  errorMessage: REAUTHENTICATION_CHAT_MESSAGE,
-                }
-              : message,
-          ),
-        }));
-        router.push(
-          buildRelativeSignInUrl(
-            `/chat?conversation=${encodeURIComponent(input.conversationId)}`,
-          ),
-        );
+        markAssistantMessageFailed({
+          conversationId: resolvedConversationId,
+          errorMessage: REAUTHENTICATION_CHAT_MESSAGE,
+          localAssistantMessageId: input.localAssistantMessageId,
+        });
+        const callbackUrl =
+          input.conversationId && !isLocalConversationId(input.conversationId)
+            ? `/chat?conversation=${encodeURIComponent(input.conversationId)}`
+            : "/chat";
+        startTransition(() => {
+          router.push(buildRelativeSignInUrl(callbackUrl));
+        });
         return;
       }
 
       if (!response.ok) {
+        const payload = await readJsonSafely(response);
         const errorMessage = getChatErrorMessage(response.status, payload);
 
-        updateConversationUiState(input.conversationId, (state) => ({
-          isSubmitting: false,
-          messages: state.messages.map((message) =>
-            message.id === input.localMessageId
-              ? {
-                  ...message,
-                  deliveryStatus: "failed" as const,
-                  errorMessage,
-                }
-              : message,
-          ),
-        }));
+        markAssistantMessageFailed({
+          conversationId: resolvedConversationId,
+          errorMessage,
+          localAssistantMessageId: input.localAssistantMessageId,
+        });
         return;
       }
 
-      if (!isChatResponsePayload(payload)) {
-        updateConversationUiState(input.conversationId, (state) => ({
-          isSubmitting: false,
-          messages: state.messages.map((message) =>
-            message.id === input.localMessageId
-              ? {
-                  ...message,
-                  deliveryStatus: "failed" as const,
-                  errorMessage: GENERIC_CHAT_RESPONSE_ERROR_MESSAGE,
-                }
-              : message,
-          ),
-        }));
+      const responseContentType = response.headers.get("content-type") ?? "";
+
+      if (!responseContentType.includes(CHAT_STREAM_ACCEPT_HEADER)) {
+        markAssistantMessageFailed({
+          conversationId: resolvedConversationId,
+          errorMessage: GENERIC_CHAT_RESPONSE_ERROR_MESSAGE,
+          localAssistantMessageId: input.localAssistantMessageId,
+        });
         return;
       }
 
-      updateConversationUiState(input.conversationId, (state) => ({
-        isSubmitting: false,
-        messages: [
-          ...state.messages.map((message) =>
-            message.id === input.localMessageId
-              ? {
-                  ...message,
-                  deliveryStatus: "ready" as const,
-                  errorMessage: null,
-                }
-              : message,
-          ),
-          {
-            citations: payload.citations,
-            content: payload.text,
-            createdAt: new Date().toISOString(),
-            deliveryStatus: "ready" as const,
-            grounded: payload.grounded,
-            id: createTransientMessageId("assistant-message"),
-            messageId: payload.messageId,
-            role: "assistant",
-          },
-        ],
-      }));
+      let hasStreamCompleted = false;
+
+      await readChatEventStream(response, (event) => {
+        switch (event.type) {
+          case "conversation": {
+            if (event.conversationId === resolvedConversationId) {
+              break;
+            }
+
+            moveConversationUiState(
+              resolvedConversationId,
+              event.conversationId,
+            );
+            renameLocalConversation(
+              resolvedConversationId,
+              event.conversationId,
+            );
+
+            setActiveConversationId(event.conversationId);
+
+            resolvedConversationId = event.conversationId;
+            startTransition(() => {
+              router.replace(
+                `/chat?conversation=${encodeURIComponent(event.conversationId)}`,
+              );
+            });
+            break;
+          }
+
+          case "assistant_delta": {
+            updateConversationUiState(resolvedConversationId, (state) => ({
+              isSubmitting: true,
+              messages: state.messages.map((message) =>
+                message.id === input.localAssistantMessageId
+                  ? {
+                      ...message,
+                      content: `${message.content}${event.delta}`,
+                      deliveryStatus: "streaming" as const,
+                      errorMessage: null,
+                    }
+                  : message,
+              ),
+            }));
+            break;
+          }
+
+          case "done": {
+            hasStreamCompleted = true;
+            const completedAt = new Date().toISOString();
+
+            updateConversationUiState(resolvedConversationId, (state) => ({
+              isSubmitting: false,
+              messages: state.messages.map((message) =>
+                message.id === input.localAssistantMessageId
+                  ? {
+                      ...message,
+                      citations: event.citations,
+                      content: event.text,
+                      deliveryStatus: "ready" as const,
+                      errorMessage: null,
+                      grounded: event.grounded,
+                      messageId: event.messageId,
+                    }
+                  : message,
+              ),
+            }));
+            markConversationActivity(resolvedConversationId, completedAt);
+            break;
+          }
+
+          case "error": {
+            markAssistantMessageFailed({
+              conversationId: resolvedConversationId,
+              errorMessage: event.message,
+              localAssistantMessageId: input.localAssistantMessageId,
+            });
+            hasStreamCompleted = true;
+            break;
+          }
+        }
+      });
+
+      if (!hasStreamCompleted) {
+        markAssistantMessageFailed({
+          conversationId: resolvedConversationId,
+          errorMessage: GENERIC_CHAT_REQUEST_ERROR_MESSAGE,
+          localAssistantMessageId: input.localAssistantMessageId,
+        });
+      }
     } catch {
-      updateConversationUiState(input.conversationId, (state) => ({
-        isSubmitting: false,
-        messages: state.messages.map((message) =>
-          message.id === input.localMessageId
-            ? {
-                ...message,
-                deliveryStatus: "failed" as const,
-                errorMessage: GENERIC_CHAT_REQUEST_ERROR_MESSAGE,
-              }
-            : message,
-        ),
-      }));
+      markAssistantMessageFailed({
+        conversationId: resolvedConversationId,
+        errorMessage: GENERIC_CHAT_REQUEST_ERROR_MESSAGE,
+        localAssistantMessageId: input.localAssistantMessageId,
+      });
     }
   }
 
-  function submitSelectedConversationMessage(input: {
-    conversationId: string;
+  function submitConversationMessage(input: {
+    appendUserMessage?: boolean;
+    conversationId?: string;
+    localAssistantMessageId?: string;
     message: string;
   }) {
-    if (
-      !selectedConversation ||
-      selectedConversation.id !== input.conversationId ||
-      selectedConversationUiState.isSubmitting
-    ) {
+    const shouldAppendUserMessage = input.appendUserMessage ?? true;
+    const currentConversationId =
+      input.conversationId ?? createLocalConversation(input.message).id;
+    const isExistingConversation = input.conversationId !== undefined;
+    const conversationUiState = getConversationUiState(
+      conversationUiStateById,
+      currentConversationId,
+    );
+
+    if (conversationUiState.isSubmitting) {
       return false;
     }
 
-    const localMessageId = createTransientMessageId("user-message");
+    const timestamp = new Date().toISOString();
+    const localAssistantMessageId =
+      input.localAssistantMessageId ??
+      createTransientMessageId("assistant-message");
 
-    updateConversationUiState(input.conversationId, (state) => ({
+    if (!isExistingConversation) {
+      const localConversation = {
+        ...createLocalConversation(input.message),
+        id: currentConversationId,
+      };
+      upsertLocalConversation(localConversation);
+      setActiveConversationId(localConversation.id);
+    } else {
+      markConversationActivity(currentConversationId, timestamp);
+      setActiveConversationId(currentConversationId);
+    }
+
+    updateConversationUiState(currentConversationId, (state) => ({
       isSubmitting: true,
-      messages: [
-        ...state.messages,
-        {
-          content: input.message,
-          createdAt: new Date().toISOString(),
-          deliveryStatus: "pending" as const,
-          errorMessage: null,
-          id: localMessageId,
-          role: "user",
-        },
-      ],
+      messages: input.localAssistantMessageId
+        ? state.messages.map((message) =>
+            message.id === input.localAssistantMessageId
+              ? {
+                  ...message,
+                  citations: [],
+                  content: "",
+                  deliveryStatus: "pending" as const,
+                  errorMessage: null,
+                  grounded: undefined,
+                  messageId: undefined,
+                  requestMessage: input.message,
+                }
+              : message,
+          )
+        : [
+            ...state.messages,
+            ...(shouldAppendUserMessage
+              ? [
+                  {
+                    content: input.message,
+                    createdAt: timestamp,
+                    deliveryStatus: "ready" as const,
+                    errorMessage: null,
+                    id: createTransientMessageId("user-message"),
+                    role: "user" as const,
+                  },
+                ]
+              : []),
+            {
+              citations: [],
+              content: "",
+              createdAt: timestamp,
+              deliveryStatus: "pending" as const,
+              errorMessage: null,
+              id: localAssistantMessageId,
+              requestMessage: input.message,
+              role: "assistant" as const,
+            },
+          ],
     }));
 
-    void sendConversationMessageRequest({
+    void sendConversationMessageStreamRequest({
       conversationId: input.conversationId,
-      localMessageId,
+      localAssistantMessageId,
+      localConversationId: currentConversationId,
       message: input.message,
     });
 
@@ -755,38 +1098,56 @@ export function ChatPageContent({
   }
 
   function retrySelectedConversationMessage(localMessageId: string) {
-    if (!selectedConversationId || selectedConversationUiState.isSubmitting) {
+    if (!activeConversationId || selectedConversationUiState.isSubmitting) {
       return;
     }
 
     const failedMessage = selectedConversationUiState.messages.find(
       (message) =>
         message.id === localMessageId &&
-        message.role === "user" &&
-        message.deliveryStatus === "failed",
+        message.role === "assistant" &&
+        message.deliveryStatus === "failed" &&
+        typeof message.requestMessage === "string" &&
+        message.requestMessage.trim().length > 0,
     );
 
     if (!failedMessage) {
       return;
     }
 
-    updateConversationUiState(selectedConversationId, (state) => ({
-      isSubmitting: true,
-      messages: state.messages.map((message) =>
-        message.id === localMessageId
-          ? {
-              ...message,
-              deliveryStatus: "pending" as const,
-              errorMessage: null,
-            }
-          : message,
-      ),
-    }));
+    void submitConversationMessage({
+      appendUserMessage: false,
+      conversationId: activeConversationId,
+      localAssistantMessageId: localMessageId,
+      message: failedMessage.requestMessage ?? "",
+    });
+  }
 
-    void sendConversationMessageRequest({
-      conversationId: selectedConversationId,
-      localMessageId,
-      message: failedMessage.content,
+  function handleSelectConversation(nextConversationId: string) {
+    setActiveConversationId(nextConversationId);
+    startTransition(() => {
+      router.push(
+        `/chat?conversation=${encodeURIComponent(nextConversationId)}`,
+      );
+    });
+  }
+
+  function handleSelectNewChat() {
+    setLocalHistory((currentHistory) =>
+      currentHistory.filter(
+        (conversation) => !isLocalConversationId(conversation.id),
+      ),
+    );
+    setConversationUiStateById((currentState) =>
+      Object.fromEntries(
+        Object.entries(currentState).filter(
+          ([conversationId]) => !isLocalConversationId(conversationId),
+        ),
+      ),
+    );
+    setActiveConversationId(null);
+    startTransition(() => {
+      router.replace("/chat");
     });
   }
 
@@ -795,8 +1156,10 @@ export function ChatPageContent({
       <div className="flex min-h-screen lg:h-screen">
         <aside className="hidden h-screen w-72 shrink-0 border-r border-[rgba(191,201,193,0.2)] bg-[#f0eee6] lg:flex">
           <ChatSidebarContent
-            history={history}
-            selectedConversationId={selectedConversationId}
+            history={displayHistory}
+            onSelectConversation={handleSelectConversation}
+            onSelectNewChat={handleSelectNewChat}
+            selectedConversationId={effectiveConversationId}
             user={user}
           />
         </aside>
@@ -820,19 +1183,25 @@ export function ChatPageContent({
                   Navegacion del chat
                 </DrawerTitle>
                 <ChatSidebarContent
-                  history={history}
+                  history={displayHistory}
                   isMobile
-                  selectedConversationId={selectedConversationId}
+                  onSelectConversation={handleSelectConversation}
+                  onSelectNewChat={handleSelectNewChat}
+                  selectedConversationId={effectiveConversationId}
                   user={user}
                 />
               </DrawerContent>
             </Drawer>
 
-            <p className="font-semibold text-[#274f3d]">Greenhouse Lab</p>
+            <p className="font-semibold text-[#274f3d]">Sinton IA</p>
 
             <Link
               className="botanical-focus inline-flex items-center gap-2 rounded-xl bg-[#274f3d] px-4 py-2.5 text-sm font-semibold text-white"
               href="/chat"
+              onClick={(event) => {
+                event.preventDefault();
+                handleSelectNewChat();
+              }}
             >
               <MessageSquarePlus className="size-4" />
               Nuevo
@@ -936,13 +1305,24 @@ export function ChatPageContent({
                   maxMessageChars={composer.maxMessageChars}
                   message={draftMessage}
                   onMessageChange={setDraftMessage}
-                  onSubmitMessage={submitSelectedConversationMessage}
+                  onSubmitMessage={({ conversationId, message }) =>
+                    submitConversationMessage({
+                      conversationId,
+                      message,
+                    })
+                  }
                 />
               ) : (
                 <CreateConversationForm
+                  isPending={false}
                   maxMessageChars={composer.maxMessageChars}
                   message={draftMessage}
                   onMessageChange={setDraftMessage}
+                  onSubmitMessage={({ message }) =>
+                    submitConversationMessage({
+                      message,
+                    })
+                  }
                 />
               )}
             </div>

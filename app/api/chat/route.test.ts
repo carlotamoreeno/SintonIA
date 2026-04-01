@@ -9,6 +9,7 @@ import {
 
 const getOptionalAppSessionMock = vi.fn();
 const createChatResponseMock = vi.fn();
+const createChatResponseStreamMock = vi.fn();
 const consumeChatRateLimitMock = vi.fn();
 
 vi.mock("@/lib/auth/app-session", () => ({
@@ -27,6 +28,10 @@ vi.mock("@/lib/chat/create-chat-response", () => ({
   createChatResponse: createChatResponseMock,
 }));
 
+vi.mock("@/lib/chat/create-chat-response-stream", () => ({
+  createChatResponseStream: createChatResponseStreamMock,
+}));
+
 vi.mock("@/lib/supabase/chat-rate-limit-store", () => ({
   chatRateLimitStore: {
     consumeRequest: consumeChatRateLimitMock,
@@ -37,6 +42,17 @@ function createJsonRequest(body: unknown) {
   return new Request("http://localhost:3000/api/chat", {
     body: JSON.stringify(body),
     headers: {
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+}
+
+function createStreamingRequest(body: unknown) {
+  return new Request("http://localhost:3000/api/chat", {
+    body: JSON.stringify(body),
+    headers: {
+      accept: "text/event-stream",
       "content-type": "application/json",
     },
     method: "POST",
@@ -66,6 +82,7 @@ describe("POST /api/chat", () => {
       message: UNAUTHENTICATED_API_MESSAGE,
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
     expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
@@ -95,6 +112,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
     expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
@@ -128,6 +146,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
     expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
@@ -162,6 +181,7 @@ describe("POST /api/chat", () => {
       },
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
     expect(consumeChatRateLimitMock).not.toHaveBeenCalled();
   });
 
@@ -212,6 +232,7 @@ describe("POST /api/chat", () => {
       limit: 20,
       userId: "user-1",
     });
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       citations: [
@@ -229,6 +250,62 @@ describe("POST /api/chat", () => {
       messageId: "message-1",
       text: "Respuesta inicial",
     });
+  });
+
+  it("returns an SSE stream when the client requests text/event-stream", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+
+    createChatResponseStreamMock.mockResolvedValueOnce({
+      context: {
+        parsedInput: {
+          conversationId: "conversation-1",
+          message: "Hola",
+          userId: "user-1",
+        },
+        history: null,
+        isNewConversation: false,
+        resolvedConversationId: "conversation-1",
+      },
+      finalize: vi.fn().mockResolvedValue({
+        citations: [],
+        conversationId: "conversation-1",
+        grounded: false,
+        messageId: "resp_123",
+        text: "Hola",
+      }),
+      stream: {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            delta: "Hola",
+            type: "response.output_text.delta",
+          };
+        },
+      },
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(createStreamingRequest({ message: "Hola" }));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).toHaveBeenCalledWith({
+      conversationId: undefined,
+      message: "Hola",
+      userId: "user-1",
+    });
+    await expect(response.text()).resolves.toContain("event: done");
   });
 
   it("maps missing or foreign conversations to a generic 400 conversationId issue", async () => {
@@ -298,6 +375,7 @@ describe("POST /api/chat", () => {
       message: RATE_LIMITED_CHAT_MESSAGE,
     });
     expect(createChatResponseMock).not.toHaveBeenCalled();
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
   });
 
   it("returns a temporary generic 502 envelope for runtime failures", async () => {
@@ -322,6 +400,7 @@ describe("POST /api/chat", () => {
     await expect(response.json()).resolves.toEqual({
       message: UPSTREAM_CHAT_ERROR_MESSAGE,
     });
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
   });
 
   it("returns 429 when the chat runtime reports rate limiting", async () => {
@@ -353,6 +432,7 @@ describe("POST /api/chat", () => {
     await expect(response.json()).resolves.toEqual({
       message: RATE_LIMITED_CHAT_MESSAGE,
     });
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
   });
 
   it("returns 504 when the chat runtime reports an upstream timeout", async () => {
@@ -384,6 +464,7 @@ describe("POST /api/chat", () => {
     await expect(response.json()).resolves.toEqual({
       message: UPSTREAM_CHAT_TIMEOUT_MESSAGE,
     });
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
   });
 
   it("keeps vector store preflight failures behind the temporary generic 502 envelope", async () => {
@@ -416,5 +497,6 @@ describe("POST /api/chat", () => {
     await expect(response.json()).resolves.toEqual({
       message: UPSTREAM_CHAT_ERROR_MESSAGE,
     });
+    expect(createChatResponseStreamMock).not.toHaveBeenCalled();
   });
 });

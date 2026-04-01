@@ -11,6 +11,7 @@ vi.mock("./client", () => ({
     },
     responses: {
       create: vi.fn(),
+      stream: vi.fn(),
     },
     vectorStores: {
       create: vi.fn(),
@@ -44,6 +45,7 @@ function createMockClient() {
     },
     responses: {
       create: vi.fn(),
+      stream: vi.fn(),
     },
     vectorStores: {
       create: vi.fn(),
@@ -84,6 +86,32 @@ describe("createOpenAIAdapter", () => {
       undefined,
     );
     expect(result).toBe(expectedResponse);
+  });
+
+  it("delegates response streaming without reshaping the SDK runner", () => {
+    const client = createMockClient();
+    const expectedStream = {
+      finalResponse: vi.fn(),
+      [Symbol.asyncIterator]: vi.fn(),
+    };
+    client.responses.stream.mockReturnValue(expectedStream as never);
+    const adapter = createOpenAIAdapter(client);
+
+    const result = adapter.streamResponse({
+      input: "Hola",
+      model: "gpt-5-nano",
+      stream: true,
+    } as never);
+
+    expect(client.responses.stream).toHaveBeenCalledWith(
+      {
+        input: "Hola",
+        model: "gpt-5-nano",
+        stream: true,
+      },
+      undefined,
+    );
+    expect(result).toBe(expectedStream);
   });
 
   it("delegates file creation without reshaping the SDK result", async () => {
