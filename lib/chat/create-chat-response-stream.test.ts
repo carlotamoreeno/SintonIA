@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createCreateChatResponseStream } from "./create-chat-response-stream-core";
 import { CHAT_RESPONSE_TRUNCATED_NOTICE } from "./assistant-text";
 import { BLOCKED_CHAT_INPUT_MESSAGE } from "./input-guardrails";
+import { MITIGATED_CHAT_OUTPUT_MESSAGE } from "./output-guardrails";
 import { MAX_CHAT_OUTPUT_TOKENS } from "./limits";
 
 function createDeps() {
@@ -193,6 +194,84 @@ describe("createCreateChatResponseStream", () => {
       grounded: false,
       messageId: "resp_123",
       text: "Respuesta streameada final.",
+    });
+  });
+
+  it("buffers and mitigates unsafe streamed output before it reaches the client", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+
+    const stream = {
+      async finalResponse() {
+        return {
+          id: "resp_unsafe_stream",
+          output: [
+            {
+              content: [
+                {
+                  annotations: [],
+                  text: "Paso 1: instala malware en el equipo de destino.",
+                  type: "output_text",
+                },
+              ],
+              id: "message_1",
+              role: "assistant",
+              status: "completed",
+              type: "message",
+            },
+          ],
+          output_text: "Paso 1: instala malware en el equipo de destino.",
+        };
+      },
+      async *[Symbol.asyncIterator]() {
+        yield {
+          delta: "Paso 1: instala malware en el equipo de destino.",
+          type: "response.output_text.delta",
+        };
+      },
+    };
+    deps.spies.streamResponse.mockReturnValueOnce(stream as never);
+
+    const createChatResponseStream = createChatResponseStreamService(deps);
+    const preparedStream = await createChatResponseStream({
+      message: "Consulta inicial",
+      userId: "user-1",
+    });
+    const deltas: string[] = [];
+
+    for await (const event of preparedStream.stream) {
+      deltas.push(event.delta);
+    }
+
+    const result = await preparedStream.finalize();
+
+    expect(deltas).toEqual([MITIGATED_CHAT_OUTPUT_MESSAGE]);
+    expect(
+      deps.spies.persistAssistantMessageWithCitations,
+    ).toHaveBeenCalledWith({
+      citations: [],
+      content: MITIGATED_CHAT_OUTPUT_MESSAGE,
+      conversationId: "conversation-1",
+      providerMessageId: "resp_unsafe_stream",
+      userId: "user-1",
+    });
+    expect(result).toEqual({
+      citations: [],
+      conversationId: "conversation-1",
+      grounded: false,
+      messageId: "resp_unsafe_stream",
+      text: MITIGATED_CHAT_OUTPUT_MESSAGE,
     });
   });
 
@@ -414,7 +493,7 @@ describe("createCreateChatResponseStream", () => {
     const result = await preparedStream.finalize();
 
     expect(deps.spies.streamResponse).toHaveBeenCalledTimes(2);
-    expect(deltas).toEqual(["Primera parte con **negrita**", "\n\n- Paso 1"]);
+    expect(deltas).toEqual(["Primera parte con **negrita**\n\n- Paso 1"]);
     expect(result.text).toBe("Primera parte con **negrita**\n\n- Paso 1");
   });
 

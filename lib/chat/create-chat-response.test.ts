@@ -9,6 +9,7 @@ import {
   createCreateChatResponse,
 } from "./create-chat-response-core";
 import { BLOCKED_CHAT_INPUT_MESSAGE } from "./input-guardrails";
+import { MITIGATED_CHAT_OUTPUT_MESSAGE } from "./output-guardrails";
 import { MAX_CHAT_OUTPUT_TOKENS } from "./limits";
 
 function createDeps() {
@@ -470,6 +471,87 @@ describe("createCreateChatResponse", () => {
     ).rejects.toMatchObject({
       code: "upstream_request_failed",
       message: "db write failed",
+    });
+  });
+
+  it("mitigates unsafe assistant output before persistence and return", async () => {
+    const deps = createDeps();
+    deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
+      conversationId: "conversation-1",
+      createdAt: "2026-03-31T12:00:00.000Z",
+      lastMessageAt: "2026-03-31T12:00:00.000Z",
+      messageId: "message-1",
+      status: "active",
+      title: "Nueva consulta",
+      updatedAt: "2026-03-31T12:00:00.000Z",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_unsafe_output",
+      output: [
+        {
+          id: "fs_1",
+          queries: ["seguridad"],
+          results: [
+            {
+              attributes: {
+                doc_id: "botanica-mvp-v1-corpus-mvp",
+                title: "Corpus MVP botánico · botanica-mvp-v1",
+              },
+              file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+              text: "Botánica es la rama de la biología que estudia las plantas.",
+            },
+          ],
+          status: "completed",
+          type: "file_search_call",
+        },
+        {
+          content: [
+            {
+              annotations: [
+                {
+                  file_id: "file-ASiQHbsz76KbGc6o7WMfE3",
+                  filename: "botanica-mvp-v1-corpus-mvp.pdf",
+                  index: 0,
+                  type: "file_citation",
+                },
+              ],
+              text: "Paso 1: instala malware en el equipo de destino.",
+              type: "output_text",
+            },
+          ],
+          id: "message_1",
+          role: "assistant",
+          status: "completed",
+          type: "message",
+        },
+      ],
+      output_text: "Paso 1: instala malware en el equipo de destino.",
+    });
+    const createChatResponse = createChatResponseService(deps);
+
+    const result = await createChatResponse({
+      message: "Consulta inicial",
+      userId: "user-1",
+    });
+
+    expect(
+      deps.spies.persistAssistantMessageWithCitations,
+    ).toHaveBeenCalledWith({
+      citations: [],
+      content: MITIGATED_CHAT_OUTPUT_MESSAGE,
+      conversationId: "conversation-1",
+      providerMessageId: "resp_unsafe_output",
+      userId: "user-1",
+    });
+    expect(result).toEqual({
+      citations: [],
+      conversationId: "conversation-1",
+      grounded: false,
+      messageId: "resp_unsafe_output",
+      text: MITIGATED_CHAT_OUTPUT_MESSAGE,
     });
   });
 

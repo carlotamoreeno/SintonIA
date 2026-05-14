@@ -17,6 +17,11 @@ import {
   classifyChatInputRisk,
   type ChatInputGuardrailDecision,
 } from "./input-guardrails";
+import {
+  classifyChatOutputRisk,
+  MITIGATED_CHAT_OUTPUT_MESSAGE,
+  type ChatOutputGuardrailDecision,
+} from "./output-guardrails";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
@@ -97,6 +102,7 @@ export type CreateChatResponseResult = {
 
 export type ResolvedOpenAIChatResponse = {
   citations: ChatCitation[];
+  guardrail: ChatOutputGuardrailDecision | null;
   incompleteReason: "content_filter" | "max_output_tokens" | null;
   messageId: string;
   text: string;
@@ -748,9 +754,31 @@ export async function resolveOpenAIChatResponse(
 
   return {
     citations,
+    guardrail: null,
     incompleteReason: getIncompleteResponseReason(response),
     messageId,
     text,
+  };
+}
+
+export function applyChatOutputGuardrails(
+  response: ResolvedOpenAIChatResponse,
+): ResolvedOpenAIChatResponse {
+  const outputGuardrail = classifyChatOutputRisk(response.text);
+
+  if (!outputGuardrail.mitigated) {
+    return {
+      ...response,
+      guardrail: outputGuardrail,
+    };
+  }
+
+  return {
+    citations: [],
+    guardrail: outputGuardrail,
+    incompleteReason: response.incompleteReason,
+    messageId: response.messageId,
+    text: MITIGATED_CHAT_OUTPUT_MESSAGE,
   };
 }
 
@@ -803,6 +831,7 @@ async function createChatResponseWithSingleContinuation(
 
   return {
     citations: mergedCitations,
+    guardrail: null,
     incompleteReason: continuationResolvedResponse.incompleteReason,
     messageId: continuationResolvedResponse.messageId,
     text:
@@ -927,7 +956,9 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
     try {
       await assertActiveVectorStoreReady(deps);
 
-      response = await createChatResponseWithSingleContinuation(deps, context);
+      response = applyChatOutputGuardrails(
+        await createChatResponseWithSingleContinuation(deps, context),
+      );
     } catch (error) {
       if (error instanceof CreateChatResponseError) {
         throw error;
