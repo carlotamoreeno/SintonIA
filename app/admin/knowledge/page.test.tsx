@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/auth/roles";
 
 const {
@@ -112,6 +112,10 @@ describe("AdminKnowledgePage", () => {
     });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("redirects anonymous users to sign-in with the admin callback", async () => {
     getOptionalAppSessionMock.mockResolvedValueOnce(null);
 
@@ -193,9 +197,107 @@ describe("AdminKnowledgePage", () => {
     expect(
       screen.getByText("Vector store file finished with status failed."),
     ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", {
+        name: /reindexar/i,
+      }),
+    ).toHaveLength(2);
     expect(screen.getByText("Documentos cargados")).toBeInTheDocument();
     expect(screen.getByText("Listos para consulta")).toBeInTheDocument();
     expect(screen.getByText("Con incidencias visibles")).toBeInTheDocument();
+  });
+
+  it("submits an individual reindex and refreshes the inventory after success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          document: {
+            status: "ready",
+          },
+        }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    listDocumentsMock.mockResolvedValueOnce([createKnowledgeDocument()]);
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("admin"));
+
+    await renderAdminKnowledgePage();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /reindexar corpus mvp botanico/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/knowledge/reindex", {
+        body: JSON.stringify({
+          datasetVersion: "mvp-2026-03",
+          docId: "botanica-mvp-v1-corpus-mvp",
+          documentVersion: 1,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+    });
+    expect(
+      await screen.findByText(/documento reindexado/i),
+    ).toBeInTheDocument();
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("shows a non-sensitive reindex failure message", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "request_id=req_secret" }), {
+        status: 502,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    listDocumentsMock.mockResolvedValueOnce([createKnowledgeDocument()]);
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("expert"));
+
+    await renderAdminKnowledgePage();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /reindexar corpus mvp botanico/i,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/no se pudo completar el reindexado/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/req_secret/i)).not.toBeInTheDocument();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render reindex controls for retired or not-uploaded rows", async () => {
+    listDocumentsMock.mockResolvedValueOnce([
+      createKnowledgeDocument({
+        docId: "not-uploaded",
+        openAIFileId: null,
+        status: "pending",
+        title: "Documento pendiente",
+      }),
+      createKnowledgeDocument({
+        docId: "retired-document",
+        status: "retired",
+        title: "Documento retirado",
+      }),
+    ]);
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("admin"));
+
+    await renderAdminKnowledgePage();
+
+    expect(
+      screen.queryByRole("button", {
+        name: /reindexar/i,
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("No disponible")).toHaveLength(2);
   });
 
   it("renders a non-sensitive failure state when the catalog cannot be loaded", async () => {

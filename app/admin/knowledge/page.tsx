@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SignOutForm } from "@/components/auth/sign-out-form";
+import { DocumentReindexButton } from "./document-reindex-button";
 import { DocumentUploadForm } from "./document-upload-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
 import {
@@ -139,6 +140,10 @@ function KnowledgeStatusBadge({
   );
 }
 
+function canReindexDocument(document: KnowledgeDocumentCatalogDocument) {
+  return Boolean(document.openAIFileId) && document.status !== "retired";
+}
+
 function DocumentInventoryTable({
   documents,
 }: {
@@ -164,6 +169,7 @@ function DocumentInventoryTable({
               <TableHead>OpenAI</TableHead>
               <TableHead>Vector store</TableHead>
               <TableHead>Indexado</TableHead>
+              <TableHead>Accion</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -205,6 +211,20 @@ function DocumentInventoryTable({
                 </TableCell>
                 <TableCell className="whitespace-normal align-top text-sm text-[#404943]">
                   {formatIndexedAt(document.lastIndexedAt)}
+                </TableCell>
+                <TableCell className="whitespace-normal align-top">
+                  {canReindexDocument(document) ? (
+                    <DocumentReindexButton
+                      datasetVersion={document.datasetVersion}
+                      docId={document.docId}
+                      documentTitle={document.title}
+                      documentVersion={document.documentVersion}
+                    />
+                  ) : (
+                    <span className="text-xs text-[#707973]">
+                      No disponible
+                    </span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
