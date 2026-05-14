@@ -21,6 +21,10 @@ import {
   CreateChatResponseError,
 } from "@/lib/chat/create-chat-response";
 import { createChatResponseStream } from "@/lib/chat/create-chat-response-stream";
+import {
+  BLOCKED_CHAT_INPUT_MESSAGE,
+  classifyChatInputRisk,
+} from "@/lib/chat/input-guardrails";
 import { chatRateLimitStore } from "@/lib/supabase/chat-rate-limit-store";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +58,17 @@ export async function POST(request: Request) {
       {
         status: 400,
       },
+    );
+  }
+
+  const inputGuardrail = classifyChatInputRisk(parsedBody.data.message);
+
+  if (inputGuardrail.blocked) {
+    return NextResponse.json(
+      buildInvalidChatRequestPayload({
+        message: [BLOCKED_CHAT_INPUT_MESSAGE],
+      }),
+      { status: 400 },
     );
   }
 
@@ -151,6 +166,18 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (
+      error instanceof CreateChatResponseError &&
+      error.code === "input_blocked"
+    ) {
+      return NextResponse.json(
+        buildInvalidChatRequestPayload({
+          message: [BLOCKED_CHAT_INPUT_MESSAGE],
+        }),
+        { status: 400 },
+      );
+    }
+
     if (
       error instanceof CreateChatResponseError &&
       error.code === "conversation_not_found"

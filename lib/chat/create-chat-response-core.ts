@@ -12,6 +12,11 @@ import {
   mergeAssistantTexts,
   sanitizeAssistantText,
 } from "./assistant-text";
+import {
+  BLOCKED_CHAT_INPUT_MESSAGE,
+  classifyChatInputRisk,
+  type ChatInputGuardrailDecision,
+} from "./input-guardrails";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
@@ -106,6 +111,7 @@ export type ResolvedCreateChatConversationContext = {
 
 export type CreateChatResponseErrorCode =
   | "conversation_not_found"
+  | "input_blocked"
   | "rate_limited"
   | "upstream_timeout"
   | "upstream_request_failed";
@@ -113,18 +119,21 @@ export type CreateChatResponseErrorCode =
 type CreateChatResponseErrorInput = {
   cause?: unknown;
   code: CreateChatResponseErrorCode;
+  guardrail?: ChatInputGuardrailDecision;
   message: string;
 };
 
 export class CreateChatResponseError extends Error {
   override readonly cause: unknown;
   readonly code: CreateChatResponseErrorCode;
+  readonly guardrail: ChatInputGuardrailDecision | null;
 
   constructor(input: CreateChatResponseErrorInput) {
     super(input.message);
     this.name = "CreateChatResponseError";
     this.code = input.code;
     this.cause = input.cause;
+    this.guardrail = input.guardrail ?? null;
   }
 }
 
@@ -808,6 +817,15 @@ export async function resolveCreateChatConversationContext(
   input: CreateChatResponseInput,
 ): Promise<ResolvedCreateChatConversationContext> {
   const parsedInput = createChatResponseInputSchema.parse(input);
+  const inputGuardrail = classifyChatInputRisk(parsedInput.message);
+
+  if (inputGuardrail.blocked) {
+    throw new CreateChatResponseError({
+      code: "input_blocked",
+      guardrail: inputGuardrail,
+      message: BLOCKED_CHAT_INPUT_MESSAGE,
+    });
+  }
 
   let isNewConversation = false;
   let resolvedConversationId = parsedInput.conversationId;
