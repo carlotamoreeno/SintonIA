@@ -51,9 +51,15 @@ type MeResponse = {
   id: string;
 };
 
+type ActiveDatasetSmokeState = {
+  datasetVersion: string;
+  source: "active_registry" | "env_fallback";
+  vectorStoreId: string;
+};
+
 function assertChatPayloadContract(
   payload: ChatSuccessPayload | null,
-  activeVectorStoreId: string,
+  expectedVectorStoreId: string,
 ) {
   assert.ok(payload, "Expected chat response JSON.");
   assert.equal(typeof payload?.text, "string");
@@ -89,7 +95,7 @@ function assertChatPayloadContract(
     assert.ok(citation.fileId.trim().length > 0);
     assert.equal(typeof citation.snippet, "string");
     assert.ok(citation.snippet.trim().length > 0);
-    assert.equal(citation.vectorStoreId, activeVectorStoreId);
+    assert.equal(citation.vectorStoreId, expectedVectorStoreId);
   }
 }
 
@@ -110,6 +116,16 @@ function getRequiredEnv(name: string) {
   }
 
   throw new Error(`Missing required environment variable: ${name}`);
+}
+
+function getOptionalEnv(name: string) {
+  const value = process.env[name];
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+
+  return null;
 }
 
 function getBaseUrl(port: number) {
@@ -370,14 +386,16 @@ async function loadPersistedConversation(input: {
 
   const { data: conversationRow, error: conversationError } = await supabase
     .from("conversations")
-    .select("id, user_id, title, status")
+    .select("id, user_id, title, status, dataset_version, vector_store_id")
     .eq("id", input.conversationId)
     .eq("user_id", userRow.id)
     .maybeSingle<{
       id: string;
+      dataset_version: string | null;
       status: string;
       title: string | null;
       user_id: string;
+      vector_store_id: string | null;
     }>();
 
   if (conversationError) {
@@ -461,6 +479,68 @@ async function loadPersistedConversation(input: {
   };
 }
 
+async function resolveExpectedActiveDatasetForSmoke(): Promise<ActiveDatasetSmokeState> {
+  const supabase = createSupabaseAdminClient();
+  const { data: activeRow, error: activeError } = await supabase
+    .from("knowledge_vector_store_registry")
+    .select("dataset_version, vector_store_id")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle<{
+      dataset_version: string;
+      vector_store_id: string;
+    }>();
+
+  if (activeError) {
+    throw new Error(
+      `Failed to load active vector store registry row: ${activeError.message}`,
+    );
+  }
+
+  if (activeRow) {
+    return {
+      datasetVersion: activeRow.dataset_version,
+      source: "active_registry",
+      vectorStoreId: activeRow.vector_store_id,
+    };
+  }
+
+  const fallbackDatasetVersion = getOptionalEnv("ACTIVE_DATASET_VERSION");
+
+  if (!fallbackDatasetVersion) {
+    throw new Error(
+      "Missing active dataset registry row and ACTIVE_DATASET_VERSION fallback.",
+    );
+  }
+
+  const { data: fallbackRow, error: fallbackError } = await supabase
+    .from("knowledge_vector_store_registry")
+    .select("dataset_version, vector_store_id")
+    .eq("dataset_version", fallbackDatasetVersion)
+    .maybeSingle<{
+      dataset_version: string;
+      vector_store_id: string;
+    }>();
+
+  if (fallbackError) {
+    throw new Error(
+      `Failed to load fallback vector store registry row: ${fallbackError.message}`,
+    );
+  }
+
+  if (!fallbackRow) {
+    throw new Error(
+      `ACTIVE_DATASET_VERSION=${fallbackDatasetVersion} is not registered in knowledge_vector_store_registry.`,
+    );
+  }
+
+  return {
+    datasetVersion: fallbackRow.dataset_version,
+    source: "env_fallback",
+    vectorStoreId: fallbackRow.vector_store_id,
+  };
+}
+
 async function main() {
   loadLocalEnvFiles();
   Reflect.deleteProperty(process.env, "NODE_ENV");
@@ -488,7 +568,7 @@ async function main() {
   });
   const cookieHeader = buildCookieHeader(authCookie);
   const baseUrl = getBaseUrl(SERVER_PORT);
-  const activeVectorStoreId = getRequiredEnv("OPENAI_ACTIVE_VECTOR_STORE_ID");
+  const expectedActiveDataset = await resolveExpectedActiveDatasetForSmoke();
   const prompt1 = "Responde exactamente con: BOTANICA";
   const prompt2 = "Gracias";
 
@@ -565,7 +645,10 @@ async function main() {
         },
       );
     assert.equal(firstChatResponse.status, 200);
-    assertChatPayloadContract(firstChatResponse.json, activeVectorStoreId);
+    assertChatPayloadContract(
+      firstChatResponse.json,
+      expectedActiveDataset.vectorStoreId,
+    );
     assert.match(
       firstChatResponse.json?.conversationId ?? "",
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
@@ -576,6 +659,14 @@ async function main() {
       conversationId: firstChatResponse.json?.conversationId ?? "",
     });
     assert.equal(firstConversationState.conversation?.status, "active");
+    assert.equal(
+      firstConversationState.conversation?.dataset_version,
+      expectedActiveDataset.datasetVersion,
+    );
+    assert.equal(
+      firstConversationState.conversation?.vector_store_id,
+      expectedActiveDataset.vectorStoreId,
+    );
     assert.equal(firstConversationState.messages.length, 2);
     assert.equal(firstConversationState.messages[0]?.role, "user");
     assert.equal(firstConversationState.messages[0]?.content, prompt1);
@@ -635,7 +726,10 @@ async function main() {
         },
       );
     assert.equal(continuedChatResponse.status, 200);
-    assertChatPayloadContract(continuedChatResponse.json, activeVectorStoreId);
+    assertChatPayloadContract(
+      continuedChatResponse.json,
+      expectedActiveDataset.vectorStoreId,
+    );
     assert.equal(
       continuedChatResponse.json?.conversationId,
       firstChatResponse.json?.conversationId,
@@ -721,6 +815,7 @@ async function main() {
             firstExchangePersisted: true,
             followUpPersisted: true,
           },
+          activeDataset: expectedActiveDataset,
           conversationId: firstChatResponse.json?.conversationId ?? null,
           firstMessageId: firstChatResponse.json?.messageId ?? null,
           secondMessageId: continuedChatResponse.json?.messageId ?? null,

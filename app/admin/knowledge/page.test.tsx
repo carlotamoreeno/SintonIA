@@ -5,13 +5,17 @@ import type { AppRole } from "@/lib/auth/roles";
 const {
   getOptionalAppSessionMock,
   listDocumentsMock,
+  listRegistrationsMock,
   redirectMock,
   refreshMock,
+  resolveActiveDatasetMock,
 } = vi.hoisted(() => ({
   getOptionalAppSessionMock: vi.fn(),
   listDocumentsMock: vi.fn(),
+  listRegistrationsMock: vi.fn(),
   redirectMock: vi.fn(),
   refreshMock: vi.fn(),
+  resolveActiveDatasetMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -28,6 +32,18 @@ vi.mock("@/lib/auth/app-session", () => ({
 vi.mock("@/lib/supabase/knowledge-document-store", () => ({
   knowledgeDocumentCatalogStore: {
     listDocuments: listDocumentsMock,
+  },
+}));
+
+vi.mock("@/lib/supabase/knowledge-vector-store-registry", () => ({
+  knowledgeVectorStoreRegistrationStore: {
+    listRegistrations: listRegistrationsMock,
+  },
+}));
+
+vi.mock("@/lib/knowledge/active-dataset", () => ({
+  activeKnowledgeDatasetResolver: {
+    resolveActiveDataset: resolveActiveDatasetMock,
   },
 }));
 
@@ -97,6 +113,30 @@ function createKnowledgeDocument(
   };
 }
 
+function createVectorStoreRegistration(
+  overrides: Partial<{
+    activatedAt: string | null;
+    datasetVersion: string;
+    isActive: boolean;
+    name: string;
+    vectorStoreId: string;
+  }> = {},
+) {
+  const datasetVersion = overrides.datasetVersion ?? "mvp-2026-03";
+
+  return {
+    activatedAt: overrides.activatedAt ?? "2026-05-14T09:00:00.000Z",
+    activatedByUserId: "persisted-user-1",
+    createdAt: "2026-03-31T08:00:00.000Z",
+    datasetVersion,
+    id: `registry-${datasetVersion}`,
+    isActive: overrides.isActive ?? true,
+    name: overrides.name ?? `sintonia-${datasetVersion}`,
+    updatedAt: "2026-05-14T09:00:00.000Z",
+    vectorStoreId: overrides.vectorStoreId ?? "vs_123",
+  };
+}
+
 async function renderAdminKnowledgePage() {
   const { default: AdminKnowledgePage } = await import("./page");
 
@@ -107,6 +147,13 @@ describe("AdminKnowledgePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listDocumentsMock.mockResolvedValue([]);
+    listRegistrationsMock.mockResolvedValue([createVectorStoreRegistration()]);
+    resolveActiveDatasetMock.mockResolvedValue({
+      activatedAt: "2026-05-14T09:00:00.000Z",
+      datasetVersion: "mvp-2026-03",
+      source: "active_registry",
+      vectorStoreId: "vs_123",
+    });
     redirectMock.mockImplementation((path: string) => {
       throw new Error(`REDIRECT:${path}`);
     });
@@ -123,6 +170,7 @@ describe("AdminKnowledgePage", () => {
       "REDIRECT:/sign-in?callbackUrl=%2Fadmin%2Fknowledge",
     );
     expect(listDocumentsMock).not.toHaveBeenCalled();
+    expect(listRegistrationsMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/subir documento/i)).not.toBeInTheDocument();
   });
 
@@ -139,6 +187,7 @@ describe("AdminKnowledgePage", () => {
     expect(screen.getByText(/no tiene permisos/i)).toBeInTheDocument();
     expect(screen.queryByText(/base protegida/i)).not.toBeInTheDocument();
     expect(listDocumentsMock).not.toHaveBeenCalled();
+    expect(listRegistrationsMock).not.toHaveBeenCalled();
   });
 
   it.each(["expert", "admin"] as const)(
@@ -160,8 +209,13 @@ describe("AdminKnowledgePage", () => {
       expect(listDocumentsMock).toHaveBeenCalledWith({
         limit: 100,
       });
+      expect(listRegistrationsMock).toHaveBeenCalled();
+      expect(screen.getByText(/dataset activo/i)).toBeInTheDocument();
+      expect(screen.getByText(/sintonia-mvp-2026-03/i)).toBeInTheDocument();
       expect(screen.getByText(/subir documento/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/dataset/i)).toBeInTheDocument();
+      expect(
+        screen.getByLabelText(/^dataset$/i, { selector: "input" }),
+      ).toBeInTheDocument();
       expect(screen.getByLabelText(/doc id/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/pdf/i)).toBeInTheDocument();
       expect(
@@ -189,7 +243,8 @@ describe("AdminKnowledgePage", () => {
     expect(screen.getByText("Inventario documental")).toBeInTheDocument();
     expect(screen.getByText("Corpus MVP botanico")).toBeInTheDocument();
     expect(screen.getByText("Guia de orquideas")).toBeInTheDocument();
-    expect(screen.getAllByText("mvp-2026-03")).toHaveLength(2);
+    expect(screen.getAllByText("mvp-2026-03").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Activo").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("file_123")).toBeInTheDocument();
     expect(screen.getByText("Pendiente")).toBeInTheDocument();
     expect(screen.getByText("Listo")).toBeInTheDocument();
@@ -247,6 +302,59 @@ describe("AdminKnowledgePage", () => {
     expect(
       await screen.findByText(/documento reindexado/i),
     ).toBeInTheDocument();
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("activates a registered dataset and refreshes the admin state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          activeDataset: {
+            datasetVersion: "next-2026-05",
+            vectorStoreId: "vs_next",
+          },
+          changed: true,
+        }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    listRegistrationsMock.mockResolvedValueOnce([
+      createVectorStoreRegistration(),
+      createVectorStoreRegistration({
+        activatedAt: null,
+        datasetVersion: "next-2026-05",
+        isActive: false,
+        name: "sintonia-next-2026-05",
+        vectorStoreId: "vs_next",
+      }),
+    ]);
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("admin"));
+
+    await renderAdminKnowledgePage();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /activar dataset next-2026-05/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/knowledge/datasets/activate",
+        {
+          body: JSON.stringify({
+            datasetVersion: "next-2026-05",
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+    });
+    expect(await screen.findByText(/dataset activado/i)).toBeInTheDocument();
     expect(refreshMock).toHaveBeenCalled();
   });
 

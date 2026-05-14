@@ -30,7 +30,9 @@ describe("createConversationStore", () => {
       data: {
         assistant_message_id: "assistant-message-1",
         assistant_created_at: "2026-03-31T12:01:00.000Z",
+        dataset_version: "mvp-2026-03",
         last_message_at: "2026-03-31T12:01:00.000Z",
+        vector_store_id: "vs_active_123",
       },
       error: null,
     });
@@ -53,8 +55,10 @@ describe("createConversationStore", () => {
       ],
       content: "Respuesta persistida",
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_123",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
 
     expect(rpcMock).toHaveBeenCalledWith(
@@ -71,14 +75,18 @@ describe("createConversationStore", () => {
         ],
         p_content: "Respuesta persistida",
         p_conversation_id: "conversation-1",
+        p_dataset_version: "mvp-2026-03",
         p_provider_message_id: "resp_123",
         p_user_id: "user-1",
+        p_vector_store_id: "vs_active_123",
       },
     );
     expect(result).toEqual({
       assistantCreatedAt: "2026-03-31T12:01:00.000Z",
       assistantMessageId: "assistant-message-1",
+      datasetVersion: "mvp-2026-03",
       lastMessageAt: "2026-03-31T12:01:00.000Z",
+      vectorStoreId: "vs_active_123",
     });
   });
 
@@ -87,9 +95,11 @@ describe("createConversationStore", () => {
       data: {
         assistant_created_at: "2026-03-31T12:02:00.000Z",
         assistant_message_id: "assistant-message-1",
+        dataset_version: "mvp-2026-03",
         last_message_at: "2026-03-31T12:02:00.000Z",
         user_created_at: "2026-03-31T12:01:59.000Z",
         user_message_id: "user-message-1",
+        vector_store_id: "vs_active_123",
       },
       error: null,
     });
@@ -105,8 +115,10 @@ describe("createConversationStore", () => {
       assistantProviderMessageId: "resp_456",
       citations: [],
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       userContent: "Seguimiento persistido",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
 
     expect(rpcMock).toHaveBeenCalledWith(
@@ -116,16 +128,20 @@ describe("createConversationStore", () => {
         p_assistant_provider_message_id: "resp_456",
         p_citations: [],
         p_conversation_id: "conversation-1",
+        p_dataset_version: "mvp-2026-03",
         p_user_content: "Seguimiento persistido",
         p_user_id: "user-1",
+        p_vector_store_id: "vs_active_123",
       },
     );
     expect(result).toEqual({
       assistantCreatedAt: "2026-03-31T12:02:00.000Z",
       assistantMessageId: "assistant-message-1",
+      datasetVersion: "mvp-2026-03",
       lastMessageAt: "2026-03-31T12:02:00.000Z",
       userCreatedAt: "2026-03-31T12:01:59.000Z",
       userMessageId: "user-message-1",
+      vectorStoreId: "vs_active_123",
     });
   });
 
@@ -133,12 +149,14 @@ describe("createConversationStore", () => {
     const singleMock = vi.fn().mockResolvedValue({
       data: {
         conversation_id: "conversation-1",
+        dataset_version: "mvp-2026-03",
         message_id: "message-1",
         title: "Consulta inicial",
         status: "active",
         created_at: "2026-03-19T12:00:00.000Z",
         updated_at: "2026-03-19T12:00:00.000Z",
         last_message_at: "2026-03-19T12:00:00.000Z",
+        vector_store_id: "vs_active_123",
       },
       error: null,
     });
@@ -152,6 +170,8 @@ describe("createConversationStore", () => {
     const result = await store.createConversationWithFirstUserMessage({
       userId: "user-1",
       content: "  Consulta inicial   con   espacios  ",
+      datasetVersion: "mvp-2026-03",
+      vectorStoreId: "vs_active_123",
     });
 
     expect(rpcMock).toHaveBeenCalledWith(
@@ -159,17 +179,21 @@ describe("createConversationStore", () => {
       {
         p_user_id: "user-1",
         p_content: "  Consulta inicial   con   espacios  ",
+        p_dataset_version: "mvp-2026-03",
         p_title: "Consulta inicial con espacios",
+        p_vector_store_id: "vs_active_123",
       },
     );
     expect(result).toEqual({
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       messageId: "message-1",
       title: "Consulta inicial",
       status: "active",
       createdAt: "2026-03-19T12:00:00.000Z",
       updatedAt: "2026-03-19T12:00:00.000Z",
       lastMessageAt: "2026-03-19T12:00:00.000Z",
+      vectorStoreId: "vs_active_123",
     });
   });
 
@@ -178,11 +202,13 @@ describe("createConversationStore", () => {
       data: [
         {
           conversation_id: "conversation-2",
+          dataset_version: "mvp-2026-03",
           title: "Mas reciente",
           status: "active",
           created_at: "2026-03-19T14:00:00.000Z",
           updated_at: "2026-03-19T14:00:00.000Z",
           last_message_at: "2026-03-19T14:05:00.000Z",
+          vector_store_id: "vs_active_123",
           messages: [
             {
               citations: [
@@ -204,11 +230,13 @@ describe("createConversationStore", () => {
         },
         {
           conversation_id: "conversation-1",
+          dataset_version: null,
           title: "Anterior",
           status: "active",
           created_at: "2026-03-19T13:00:00.000Z",
           updated_at: "2026-03-19T13:00:00.000Z",
           last_message_at: "2026-03-19T13:05:00.000Z",
+          vector_store_id: null,
           messages: [
             {
               citations: [],
@@ -248,17 +276,21 @@ describe("createConversationStore", () => {
     ]);
     expect(result[0]?.messages[0]?.grounded).toBe(true);
     expect(result[0]?.messages[0]?.providerMessageId).toBe("resp_123");
+    expect(result[0]?.datasetVersion).toBe("mvp-2026-03");
+    expect(result[0]?.vectorStoreId).toBe("vs_active_123");
   });
 
   it("loads one persisted conversation by id for the requested user", async () => {
     const maybeSingleMock = vi.fn().mockResolvedValue({
       data: {
         id: "conversation-1",
+        dataset_version: "mvp-2026-03",
         title: "Consulta focalizada",
         status: "active",
         created_at: "2026-03-19T13:00:00.000Z",
         updated_at: "2026-03-19T13:05:00.000Z",
         last_message_at: "2026-03-19T13:05:00.000Z",
+        vector_store_id: "vs_active_123",
       },
       error: null,
     });
@@ -349,7 +381,7 @@ describe("createConversationStore", () => {
 
     expect(fromMock).toHaveBeenNthCalledWith(1, "conversations");
     expect(conversationSelectMock).toHaveBeenCalledWith(
-      "id, title, status, created_at, updated_at, last_message_at",
+      "id, title, status, created_at, updated_at, last_message_at, dataset_version, vector_store_id",
     );
     expect(conversationEqIdMock).toHaveBeenCalledWith("id", "conversation-1");
     expect(conversationEqUserIdMock).toHaveBeenCalledWith("user_id", "user-1");
@@ -374,11 +406,13 @@ describe("createConversationStore", () => {
     ]);
     expect(result).toEqual({
       id: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       title: "Consulta focalizada",
       status: "active",
       createdAt: "2026-03-19T13:00:00.000Z",
       updatedAt: "2026-03-19T13:05:00.000Z",
       lastMessageAt: "2026-03-19T13:05:00.000Z",
+      vectorStoreId: "vs_active_123",
       messages: [
         {
           citations: [],

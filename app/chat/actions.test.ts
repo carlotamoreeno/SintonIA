@@ -5,6 +5,7 @@ import { initialCreateConversationFormState } from "./create-conversation-form-s
 const getOptionalAppSessionMock = vi.fn();
 const createConversationWithFirstUserMessageMock = vi.fn();
 const revalidatePathMock = vi.fn();
+const resolveActiveDatasetMock = vi.fn();
 const redirectMock = vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`);
 });
@@ -28,6 +29,12 @@ vi.mock("@/lib/supabase/conversation-store", () => ({
   },
 }));
 
+vi.mock("@/lib/knowledge/active-dataset", () => ({
+  activeKnowledgeDatasetResolver: {
+    resolveActiveDataset: resolveActiveDatasetMock,
+  },
+}));
+
 function buildFormData(message: string) {
   const formData = new FormData();
   formData.set("message", message);
@@ -38,6 +45,11 @@ function buildFormData(message: string) {
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  resolveActiveDatasetMock.mockResolvedValue({
+    datasetVersion: "mvp-2026-03",
+    source: "active_registry",
+    vectorStoreId: "vs_active_123",
+  });
 });
 
 describe("createConversationAction", () => {
@@ -138,7 +150,39 @@ describe("createConversationAction", () => {
     expect(createConversationWithFirstUserMessageMock).toHaveBeenCalledWith({
       userId: "user-1",
       content: "Mensaje persistido",
+      datasetVersion: "mvp-2026-03",
+      vectorStoreId: "vs_active_123",
     });
     expect(revalidatePathMock).toHaveBeenCalledWith("/chat");
+  });
+
+  it("returns an error before creating a conversation when no active dataset can be resolved", async () => {
+    getOptionalAppSessionMock.mockResolvedValueOnce({
+      persistedIdentity: {
+        user: {
+          id: "user-1",
+        },
+      },
+      session: {
+        user: {
+          id: "google:sub_123",
+        },
+      },
+    });
+    resolveActiveDatasetMock.mockRejectedValueOnce(
+      new Error("No active dataset"),
+    );
+    const { createConversationAction } = await import("./actions");
+
+    const result = await createConversationAction(
+      initialCreateConversationFormState,
+      buildFormData("Mensaje persistido"),
+    );
+
+    expect(result).toEqual({
+      error: "No se pudo resolver el dataset documental activo.",
+      message: "Mensaje persistido",
+    });
+    expect(createConversationWithFirstUserMessageMock).not.toHaveBeenCalled();
   });
 });

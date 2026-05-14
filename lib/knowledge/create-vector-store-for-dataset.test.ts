@@ -6,20 +6,26 @@ import {
 
 function createRegistration(overrides?: Record<string, unknown>) {
   return {
-    id: "registry-row-1",
-    datasetVersion: "mvp-2026-03",
-    vectorStoreId: "vs_123",
-    name: "sintonia-mvp-2026-03",
+    activatedAt: null,
+    activatedByUserId: null,
     createdAt: "2026-03-31T08:00:00.000Z",
+    datasetVersion: "mvp-2026-03",
+    id: "registry-row-1",
+    isActive: false,
+    name: "sintonia-mvp-2026-03",
     updatedAt: "2026-03-31T08:00:00.000Z",
+    vectorStoreId: "vs_123",
     ...overrides,
   };
 }
 
 function createDeps() {
+  const activateDataset = vi.fn();
   const createRegistration = vi.fn();
+  const findActiveRegistration = vi.fn().mockResolvedValue(null);
   const findByDatasetVersion = vi.fn().mockResolvedValue(null);
   const findByVectorStoreId = vi.fn().mockResolvedValue(null);
+  const listRegistrations = vi.fn().mockResolvedValue([]);
   const createVectorStore = vi.fn().mockResolvedValue({
     _request_id: "req_create_123",
     id: "vs_created_123",
@@ -42,16 +48,22 @@ function createDeps() {
       retrieveVectorStore,
     },
     registryStore: {
+      activateDataset,
       createRegistration,
+      findActiveRegistration,
       findByDatasetVersion,
       findByVectorStoreId,
+      listRegistrations,
     },
     spies: {
+      activateDataset,
       createRegistration,
       createVectorStore,
       deleteVectorStore,
+      findActiveRegistration,
       findByDatasetVersion,
       findByVectorStoreId,
+      listRegistrations,
       retrieveVectorStore,
     },
   };

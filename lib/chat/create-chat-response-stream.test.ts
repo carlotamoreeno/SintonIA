@@ -11,10 +11,19 @@ function createDeps() {
   const createConversationWithFirstUserMessage = vi.fn();
   const findConversationHistoryForUserById = vi.fn();
   const findDocumentByIdentity = vi.fn();
+  const resolveActiveDataset = vi.fn().mockResolvedValue({
+    activatedAt: "2026-05-14T09:00:00.000Z",
+    datasetVersion: "mvp-2026-03",
+    source: "active_registry",
+    vectorStoreId: "vs_active_123",
+  });
   const retrieveVectorStore = vi.fn();
   const streamResponse = vi.fn();
 
   return {
+    activeDatasetResolver: {
+      resolveActiveDataset,
+    },
     catalogStore: {
       findDocumentByIdentity,
     },
@@ -33,6 +42,7 @@ function createDeps() {
       findConversationHistoryForUserById,
       persistAssistantMessageWithCitations,
       persistConversationTurnWithCitations,
+      resolveActiveDataset,
       retrieveVectorStore,
       streamResponse,
     },
@@ -55,7 +65,7 @@ function createReadyVectorStore() {
 
 function createChatResponseStreamService(deps: ReturnType<typeof createDeps>) {
   return createCreateChatResponseStream({
-    activeVectorStoreId: "vs_active_123",
+    activeDatasetResolver: deps.activeDatasetResolver,
     catalogStore: deps.catalogStore,
     conversationStore: deps.conversationStore,
     enablePromptCaching: false,
@@ -189,8 +199,10 @@ describe("createCreateChatResponseStream", () => {
       citations: [],
       content: "Respuesta streameada final.",
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_123",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(result).toEqual({
       citations: [],
@@ -199,6 +211,66 @@ describe("createCreateChatResponseStream", () => {
       messageId: "resp_123",
       text: "Respuesta streameada final.",
     });
+  });
+
+  it("streams existing pinned conversations from their original vector store", async () => {
+    const deps = createDeps();
+    deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce({
+      createdAt: "2026-03-31T12:00:00.000Z",
+      datasetVersion: "legacy-2026-02",
+      id: "conversation-1",
+      lastMessageAt: "2026-03-31T12:05:00.000Z",
+      messages: [],
+      status: "active",
+      title: "Consulta previa",
+      updatedAt: "2026-03-31T12:05:00.000Z",
+      vectorStoreId: "vs_legacy_123",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    const stream = {
+      async finalResponse() {
+        return {
+          id: "resp_legacy_stream",
+          output: [],
+          output_text: "Respuesta anterior",
+        };
+      },
+      async *[Symbol.asyncIterator]() {},
+    };
+    deps.spies.streamResponse.mockReturnValueOnce(stream as never);
+    const createChatResponseStream = createChatResponseStreamService(deps);
+
+    const preparedStream = await createChatResponseStream({
+      conversationId: "conversation-1",
+      message: "Nueva pregunta",
+      userId: "user-1",
+    });
+    await preparedStream.finalize();
+
+    expect(deps.spies.resolveActiveDataset).not.toHaveBeenCalled();
+    expect(deps.spies.retrieveVectorStore).toHaveBeenCalledWith(
+      "vs_legacy_123",
+    );
+    expect(deps.spies.streamResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [
+          {
+            type: "file_search",
+            vector_store_ids: ["vs_legacy_123"],
+          },
+        ],
+      }),
+    );
+    expect(
+      deps.spies.persistConversationTurnWithCitations,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        datasetVersion: "legacy-2026-02",
+        vectorStoreId: "vs_legacy_123",
+      }),
+    );
   });
 
   it("buffers and mitigates unsafe streamed output before it reaches the client", async () => {
@@ -270,8 +342,10 @@ describe("createCreateChatResponseStream", () => {
       citations: [],
       content: MITIGATED_CHAT_OUTPUT_MESSAGE,
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_unsafe_stream",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(result).toEqual({
       citations: [],

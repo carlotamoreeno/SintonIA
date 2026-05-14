@@ -153,19 +153,23 @@ describe("createPrivacyExportStore", () => {
       conversations: [
         {
           id: "conversation-new",
+          dataset_version: "mvp-2026-03",
           title: "Consulta nueva",
           status: "active",
           created_at: "2026-05-14T08:05:00.000Z",
           updated_at: "2026-05-14T08:07:00.000Z",
           last_message_at: "2026-05-14T08:07:00.000Z",
+          vector_store_id: "vs_active_123",
         },
         {
           id: "conversation-old",
+          dataset_version: null,
           title: "Consulta antigua",
           status: "active",
           created_at: "2026-05-13T08:00:00.000Z",
           updated_at: "2026-05-13T08:01:00.000Z",
           last_message_at: "2026-05-13T08:01:00.000Z",
+          vector_store_id: null,
         },
       ],
       messages: [
@@ -250,11 +254,13 @@ describe("createPrivacyExportStore", () => {
       conversations: [
         {
           id: "conversation-new",
+          datasetVersion: "mvp-2026-03",
           title: "Consulta nueva",
           status: "active",
           createdAt: "2026-05-14T08:05:00.000Z",
           updatedAt: "2026-05-14T08:07:00.000Z",
           lastMessageAt: "2026-05-14T08:07:00.000Z",
+          vectorStoreId: "vs_active_123",
           messages: [
             {
               id: "message-new-user",
@@ -287,11 +293,13 @@ describe("createPrivacyExportStore", () => {
         },
         {
           id: "conversation-old",
+          datasetVersion: null,
           title: "Consulta antigua",
           status: "active",
           createdAt: "2026-05-13T08:00:00.000Z",
           updatedAt: "2026-05-13T08:01:00.000Z",
           lastMessageAt: "2026-05-13T08:01:00.000Z",
+          vectorStoreId: null,
           messages: [
             {
               id: "message-old-user",

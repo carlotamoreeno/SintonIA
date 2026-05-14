@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  Database,
   FileText,
   LockKeyhole,
   ShieldCheck,
@@ -26,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SignOutForm } from "@/components/auth/sign-out-form";
+import { DatasetActivationButton } from "./dataset-activation-button";
 import { DocumentReindexButton } from "./document-reindex-button";
 import { DocumentUploadForm } from "./document-upload-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
@@ -34,11 +36,16 @@ import {
   type DocumentaryAdminRole,
 } from "@/lib/auth/admin-access";
 import { getOptionalAppSession } from "@/lib/auth/app-session";
+import { activeKnowledgeDatasetResolver } from "@/lib/knowledge/active-dataset";
 import {
   knowledgeDocumentCatalogStore,
   type KnowledgeDocumentCatalogDocument,
   type KnowledgeDocumentCatalogStatus,
 } from "@/lib/supabase/knowledge-document-store";
+import {
+  knowledgeVectorStoreRegistrationStore,
+  type KnowledgeVectorStoreRegistration,
+} from "@/lib/supabase/knowledge-vector-store-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +54,17 @@ const ADMIN_KNOWLEDGE_DOCUMENT_LIMIT = 100;
 type DocumentInventoryState =
   | {
       documents: KnowledgeDocumentCatalogDocument[];
+      status: "ready";
+    }
+  | {
+      status: "error";
+    };
+
+type DatasetActivationState =
+  | {
+      activeDatasetVersion: string | null;
+      activeSource: "active_registry" | "env_fallback" | null;
+      registrations: KnowledgeVectorStoreRegistration[];
       status: "ready";
     }
   | {
@@ -98,6 +116,7 @@ type AdminKnowledgeShellProps = {
   inventory: DocumentInventoryState;
   name: string | null;
   role: DocumentaryAdminRole;
+  datasets: DatasetActivationState;
 };
 
 function hasDocumentProblem(document: KnowledgeDocumentCatalogDocument) {
@@ -145,8 +164,10 @@ function canReindexDocument(document: KnowledgeDocumentCatalogDocument) {
 }
 
 function DocumentInventoryTable({
+  activeDatasetVersion,
   documents,
 }: {
+  activeDatasetVersion: string | null;
   documents: KnowledgeDocumentCatalogDocument[];
 }) {
   return (
@@ -186,6 +207,14 @@ function DocumentInventoryTable({
                 </TableCell>
                 <TableCell className="whitespace-normal align-top text-sm text-[#404943]">
                   {document.datasetVersion}
+                  {document.datasetVersion === activeDatasetVersion ? (
+                    <Badge
+                      className="mt-2 border-[#b7d2be] bg-[#eef6e9] text-[#274f3d]"
+                      variant="outline"
+                    >
+                      Activo
+                    </Badge>
+                  ) : null}
                 </TableCell>
                 <TableCell className="min-w-48 whitespace-normal align-top">
                   <p className="font-mono text-xs text-[#404943]">
@@ -236,8 +265,10 @@ function DocumentInventoryTable({
 }
 
 function DocumentInventory({
+  activeDatasetVersion,
   inventory,
 }: {
+  activeDatasetVersion: string | null;
   inventory: DocumentInventoryState;
 }) {
   if (inventory.status === "error") {
@@ -296,7 +327,10 @@ function DocumentInventory({
       </div>
 
       {documents.length > 0 ? (
-        <DocumentInventoryTable documents={documents} />
+        <DocumentInventoryTable
+          activeDatasetVersion={activeDatasetVersion}
+          documents={documents}
+        />
       ) : (
         <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/85 shadow-none">
           <CardHeader>
@@ -314,7 +348,128 @@ function DocumentInventory({
   );
 }
 
+function formatActivationDate(value: string | null) {
+  if (!value) {
+    return "Sin activacion registrada";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function DatasetActivationPanel({
+  datasets,
+}: {
+  datasets: DatasetActivationState;
+}) {
+  if (datasets.status === "error") {
+    return (
+      <Card className="rounded-lg border border-[#f0d2d2] bg-[#fff7f4] shadow-none">
+        <CardHeader>
+          <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-white text-[#8a3d2c]">
+            <AlertTriangle className="size-5" />
+          </div>
+          <CardTitle>No se pudo cargar el estado de datasets</CardTitle>
+          <CardDescription>
+            La activacion documental no esta disponible temporalmente.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/85 shadow-none">
+      <CardHeader>
+        <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#edf7fb] text-[#2f566d]">
+          <Database className="size-5" />
+        </div>
+        <CardTitle>Dataset activo</CardTitle>
+        <CardDescription>
+          Controla que vector store usa el chat para nuevas conversaciones.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow className="border-[rgba(191,201,193,0.55)]">
+              <TableHead>Dataset</TableHead>
+              <TableHead>Vector store</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead>Activado</TableHead>
+              <TableHead>Accion</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {datasets.registrations.map((registration) => {
+              const isActive =
+                registration.datasetVersion === datasets.activeDatasetVersion;
+              const isFallbackActive =
+                isActive && datasets.activeSource === "env_fallback";
+
+              return (
+                <TableRow
+                  className="border-[rgba(191,201,193,0.45)] hover:bg-[#f6f4ec]/70"
+                  key={registration.id}
+                >
+                  <TableCell className="whitespace-normal align-top">
+                    <p className="font-medium text-[#1b1c17]">
+                      {registration.datasetVersion}
+                    </p>
+                    <p className="mt-1 text-xs text-[#707973]">
+                      {registration.name}
+                    </p>
+                  </TableCell>
+                  <TableCell className="max-w-56 whitespace-normal break-all align-top font-mono text-xs text-[#404943]">
+                    {registration.vectorStoreId}
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    {isActive ? (
+                      <Badge
+                        className="border-[#b7d2be] bg-[#dae8be] text-[#274f3d]"
+                        variant="secondary"
+                      >
+                        {isFallbackActive ? "Activo por entorno" : "Activo"}
+                      </Badge>
+                    ) : (
+                      <Badge
+                        className="border-[#d6d0c5] bg-white text-[#707973]"
+                        variant="outline"
+                      >
+                        Disponible
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top text-sm text-[#404943]">
+                    {formatActivationDate(registration.activatedAt)}
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    <DatasetActivationButton
+                      datasetVersion={registration.datasetVersion}
+                      isActive={isActive && !isFallbackActive}
+                    />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminKnowledgeShell({
+  datasets,
   email,
   inventory,
   name,
@@ -363,9 +518,16 @@ function AdminKnowledgeShell({
             </div>
           </div>
 
+          <DatasetActivationPanel datasets={datasets} />
+
           <DocumentUploadForm />
 
-          <DocumentInventory inventory={inventory} />
+          <DocumentInventory
+            activeDatasetVersion={
+              datasets.status === "ready" ? datasets.activeDatasetVersion : null
+            }
+            inventory={inventory}
+          />
 
           <Card className="rounded-lg border border-[#b7d2be] bg-[#eef6e9] shadow-none">
             <CardContent className="flex flex-col gap-3 pt-0 sm:flex-row sm:items-center sm:justify-between">
@@ -439,6 +601,7 @@ export default async function AdminKnowledgePage() {
   }
 
   let inventory: DocumentInventoryState;
+  let datasets: DatasetActivationState;
 
   try {
     inventory = {
@@ -453,8 +616,27 @@ export default async function AdminKnowledgePage() {
     };
   }
 
+  try {
+    const [registrations, activeDataset] = await Promise.all([
+      knowledgeVectorStoreRegistrationStore.listRegistrations(),
+      activeKnowledgeDatasetResolver.resolveActiveDataset().catch(() => null),
+    ]);
+
+    datasets = {
+      activeDatasetVersion: activeDataset?.datasetVersion ?? null,
+      activeSource: activeDataset?.source ?? null,
+      registrations,
+      status: "ready",
+    };
+  } catch {
+    datasets = {
+      status: "error",
+    };
+  }
+
   return (
     <AdminKnowledgeShell
+      datasets={datasets}
       email={user.email ?? null}
       inventory={inventory}
       name={user.name ?? null}

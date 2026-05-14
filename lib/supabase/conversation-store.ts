@@ -30,21 +30,25 @@ const persistedConversationHistoryMessageSchema = z.object({
 
 const persistedConversationHistoryRowSchema = z.object({
   conversation_id: z.string().min(1),
+  dataset_version: z.string().min(1).nullable().default(null),
   title: z.string().nullable(),
   status: z.string().min(1),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   last_message_at: z.string().datetime({ offset: true }).nullable(),
+  vector_store_id: z.string().min(1).nullable().default(null),
   messages: z.array(persistedConversationHistoryMessageSchema).default([]),
 });
 
 const persistedConversationSummaryRowSchema = z.object({
   id: z.string().min(1),
+  dataset_version: z.string().min(1).nullable().default(null),
   title: z.string().nullable(),
   status: z.string().min(1),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   last_message_at: z.string().datetime({ offset: true }).nullable(),
+  vector_store_id: z.string().min(1).nullable().default(null),
 });
 
 const persistedConversationMessageRowSchema = z.object({
@@ -67,26 +71,32 @@ const persistedConversationCitationRowSchema = z.object({
 
 const createConversationResultSchema = z.object({
   conversation_id: z.string().min(1),
+  dataset_version: z.string().min(1).nullable().default(null),
   message_id: z.string().min(1),
   title: z.string().nullable(),
   status: z.string().min(1),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
   last_message_at: z.string().datetime({ offset: true }).nullable(),
+  vector_store_id: z.string().min(1).nullable().default(null),
 });
 
 const persistAssistantMessageResultSchema = z.object({
   assistant_created_at: z.string().datetime({ offset: true }),
   assistant_message_id: z.string().min(1),
+  dataset_version: z.string().min(1).nullable().default(null),
   last_message_at: z.string().datetime({ offset: true }).nullable(),
+  vector_store_id: z.string().min(1).nullable().default(null),
 });
 
 const persistConversationTurnResultSchema = z.object({
   assistant_created_at: z.string().datetime({ offset: true }),
   assistant_message_id: z.string().min(1),
+  dataset_version: z.string().min(1).nullable().default(null),
   last_message_at: z.string().datetime({ offset: true }).nullable(),
   user_created_at: z.string().datetime({ offset: true }),
   user_message_id: z.string().min(1),
+  vector_store_id: z.string().min(1).nullable().default(null),
 });
 
 export type PersistedConversationCitation = z.infer<
@@ -101,36 +111,44 @@ export type PersistedConversationHistoryMessage = z.infer<
 
 export type PersistedConversationHistoryConversation = {
   createdAt: string;
+  datasetVersion: string | null;
   id: string;
   lastMessageAt: string | null;
   messages: PersistedConversationHistoryMessage[];
   status: string;
   title: string | null;
   updatedAt: string;
+  vectorStoreId: string | null;
 };
 
 export type CreateConversationWithFirstUserMessageResult = {
   conversationId: string;
   createdAt: string;
+  datasetVersion: string | null;
   lastMessageAt: string | null;
   messageId: string;
   status: string;
   title: string | null;
   updatedAt: string;
+  vectorStoreId: string | null;
 };
 
 export type PersistAssistantMessageResult = {
   assistantCreatedAt: string;
   assistantMessageId: string;
+  datasetVersion: string | null;
   lastMessageAt: string | null;
+  vectorStoreId: string | null;
 };
 
 export type PersistConversationTurnResult = {
   assistantCreatedAt: string;
   assistantMessageId: string;
+  datasetVersion: string | null;
   lastMessageAt: string | null;
   userCreatedAt: string;
   userMessageId: string;
+  vectorStoreId: string | null;
 };
 
 type ConversationStoreClient = Pick<SupabaseAdminClient, "from" | "rpc">;
@@ -140,20 +158,26 @@ export type ConversationStore = {
     citations: PersistedConversationCitation[];
     content: string;
     conversationId: string;
+    datasetVersion: string;
     providerMessageId: string;
     userId: string;
+    vectorStoreId: string;
   }): Promise<PersistAssistantMessageResult>;
   persistConversationTurnWithCitations(input: {
     assistantContent: string;
     assistantProviderMessageId: string;
     citations: PersistedConversationCitation[];
     conversationId: string;
+    datasetVersion: string;
     userId: string;
     userContent: string;
+    vectorStoreId: string;
   }): Promise<PersistConversationTurnResult>;
   createConversationWithFirstUserMessage(input: {
     content: string;
+    datasetVersion: string;
     userId: string;
+    vectorStoreId: string;
   }): Promise<CreateConversationWithFirstUserMessageResult>;
   findConversationHistoryForUserById(
     userId: string,
@@ -212,16 +236,20 @@ export function createConversationStore(
       citations,
       content,
       conversationId,
+      datasetVersion,
       providerMessageId,
       userId,
+      vectorStoreId,
     }) {
       const { data, error } = await client
         .rpc("persist_assistant_message_with_citations", {
           p_citations: citations,
           p_content: content,
           p_conversation_id: conversationId,
+          p_dataset_version: datasetVersion,
           p_provider_message_id: providerMessageId,
           p_user_id: userId,
+          p_vector_store_id: vectorStoreId,
         })
         .single();
 
@@ -236,7 +264,9 @@ export function createConversationStore(
       return {
         assistantCreatedAt: result.assistant_created_at,
         assistantMessageId: result.assistant_message_id,
+        datasetVersion: result.dataset_version,
         lastMessageAt: result.last_message_at,
+        vectorStoreId: result.vector_store_id,
       };
     },
 
@@ -245,8 +275,10 @@ export function createConversationStore(
       assistantProviderMessageId,
       citations,
       conversationId,
+      datasetVersion,
       userContent,
       userId,
+      vectorStoreId,
     }) {
       const { data, error } = await client
         .rpc("persist_chat_exchange_with_citations", {
@@ -254,8 +286,10 @@ export function createConversationStore(
           p_assistant_provider_message_id: assistantProviderMessageId,
           p_citations: citations,
           p_conversation_id: conversationId,
+          p_dataset_version: datasetVersion,
           p_user_content: userContent,
           p_user_id: userId,
+          p_vector_store_id: vectorStoreId,
         })
         .single();
 
@@ -268,18 +302,27 @@ export function createConversationStore(
       return {
         assistantCreatedAt: result.assistant_created_at,
         assistantMessageId: result.assistant_message_id,
+        datasetVersion: result.dataset_version,
         lastMessageAt: result.last_message_at,
         userCreatedAt: result.user_created_at,
         userMessageId: result.user_message_id,
+        vectorStoreId: result.vector_store_id,
       };
     },
 
-    async createConversationWithFirstUserMessage({ userId, content }) {
+    async createConversationWithFirstUserMessage({
+      userId,
+      content,
+      datasetVersion,
+      vectorStoreId,
+    }) {
       const { data, error } = await client
         .rpc("create_conversation_with_first_message", {
           p_content: content,
+          p_dataset_version: datasetVersion,
           p_title: normalizeConversationTitleFromMessage(content),
           p_user_id: userId,
+          p_vector_store_id: vectorStoreId,
         })
         .single();
 
@@ -297,8 +340,10 @@ export function createConversationStore(
         title: result.title,
         status: result.status,
         createdAt: result.created_at,
+        datasetVersion: result.dataset_version,
         updatedAt: result.updated_at,
         lastMessageAt: result.last_message_at,
+        vectorStoreId: result.vector_store_id,
       };
     },
 
@@ -321,11 +366,13 @@ export function createConversationStore(
         .parse(data ?? [])
         .map((conversation) => ({
           id: conversation.conversation_id,
+          datasetVersion: conversation.dataset_version,
           title: conversation.title,
           status: conversation.status,
           createdAt: conversation.created_at,
           updatedAt: conversation.updated_at,
           lastMessageAt: conversation.last_message_at,
+          vectorStoreId: conversation.vector_store_id,
           messages: conversation.messages.map((message) =>
             buildPersistedConversationHistoryMessage(message),
           ),
@@ -335,7 +382,9 @@ export function createConversationStore(
     async findConversationHistoryForUserById(userId, conversationId) {
       const { data: conversationRow, error: conversationError } = await client
         .from("conversations")
-        .select("id, title, status, created_at, updated_at, last_message_at")
+        .select(
+          "id, title, status, created_at, updated_at, last_message_at, dataset_version, vector_store_id",
+        )
         .eq("id", conversationId)
         .eq("user_id", userId)
         .maybeSingle();
@@ -422,6 +471,8 @@ export function createConversationStore(
         createdAt: conversation.created_at,
         updatedAt: conversation.updated_at,
         lastMessageAt: conversation.last_message_at,
+        datasetVersion: conversation.dataset_version,
+        vectorStoreId: conversation.vector_store_id,
         messages,
       };
     },

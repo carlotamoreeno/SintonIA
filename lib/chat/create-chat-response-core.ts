@@ -26,6 +26,7 @@ import {
   logChatGuardrailIncident,
   type ChatGuardrailTransport,
 } from "./security-incidents";
+import type { ActiveKnowledgeDatasetResolver } from "@/lib/knowledge/active-dataset-core";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
@@ -120,10 +121,12 @@ export type ResolvedOpenAIChatResponse = {
 };
 
 export type ResolvedCreateChatConversationContext = {
+  datasetVersion: string;
   history: PersistedConversationHistory | null;
   isNewConversation: boolean;
   parsedInput: ParsedCreateChatResponseInput;
   resolvedConversationId: string;
+  vectorStoreId: string;
 };
 
 export type CreateChatResponseErrorCode =
@@ -155,7 +158,7 @@ export class CreateChatResponseError extends Error {
 }
 
 export type CreateChatResponseDeps = {
-  activeVectorStoreId: string;
+  activeDatasetResolver: ActiveKnowledgeDatasetResolver;
   catalogStore: Pick<KnowledgeDocumentCatalogStore, "findDocumentByIdentity">;
   conversationStore: Pick<
     ConversationStore,
@@ -173,19 +176,15 @@ export type CreateChatResponseDeps = {
 
 export type CreateChatResponseRequestConfig = Pick<
   CreateChatResponseDeps,
-  | "activeVectorStoreId"
-  | "enablePromptCaching"
-  | "maxHistoryTurns"
-  | "maxOutputTokens"
-  | "model"
+  "enablePromptCaching" | "maxHistoryTurns" | "maxOutputTokens" | "model"
 >;
 export type CreateChatResponseConversationDeps = Pick<
   CreateChatResponseDeps,
-  "conversationStore"
+  "activeDatasetResolver" | "conversationStore"
 >;
 export type CreateChatResponseVectorStoreDeps = {
-  activeVectorStoreId: string;
   openAI: CreateChatResponseVectorStoreClient;
+  vectorStoreId: string;
 };
 
 export const CHAT_RESPONSE_REASONING_EFFORT = "low";
@@ -319,11 +318,11 @@ function buildContinuationInput(
 
 function buildPromptCacheKey(
   model: string,
-  activeVectorStoreId: string,
+  vectorStoreId: string,
   conversationId: string,
 ) {
   const hash = createHash("sha256")
-    .update(`${model}:${activeVectorStoreId}:${conversationId}`)
+    .update(`${model}:${vectorStoreId}:${conversationId}`)
     .digest("hex");
 
   return `chat_pc_${hash.slice(0, 32)}`;
@@ -334,11 +333,13 @@ export function buildCreateResponseParams(
   history: PersistedConversationHistory | null,
   conversationId: string,
   message: string,
+  vectorStoreId: string,
 ): OpenAIResponsesCreateParams {
   return buildCreateResponseParamsFromInput(
     deps,
     buildConversationInput(history, deps.maxHistoryTurns, message),
     conversationId,
+    vectorStoreId,
   );
 }
 
@@ -346,6 +347,7 @@ export function buildCreateResponseParamsFromInput(
   deps: CreateChatResponseRequestConfig,
   input: string,
   conversationId: string,
+  vectorStoreId: string,
 ): OpenAIResponsesCreateParams {
   const body: OpenAIResponsesCreateParams = {
     include: ["file_search_call.results"],
@@ -360,7 +362,7 @@ export function buildCreateResponseParamsFromInput(
     tools: [
       {
         type: "file_search",
-        vector_store_ids: [deps.activeVectorStoreId],
+        vector_store_ids: [vectorStoreId],
       },
     ],
   };
@@ -368,7 +370,7 @@ export function buildCreateResponseParamsFromInput(
   if (deps.enablePromptCaching) {
     body.prompt_cache_key = buildPromptCacheKey(
       deps.model,
-      deps.activeVectorStoreId,
+      vectorStoreId,
       conversationId,
     );
   }
@@ -390,14 +392,12 @@ export async function assertActiveVectorStoreReady(
   let vectorStore: ActiveVectorStore;
 
   try {
-    vectorStore = await deps.openAI.retrieveVectorStore(
-      deps.activeVectorStoreId,
-    );
+    vectorStore = await deps.openAI.retrieveVectorStore(deps.vectorStoreId);
   } catch (error) {
     throw new CreateChatResponseError({
       cause: error,
       code: getCreateChatResponseUpstreamErrorCode(error),
-      message: `Active vector store ${deps.activeVectorStoreId} could not be loaded for chat retrieval: ${getDetailedErrorMessage(error)}`,
+      message: `Active vector store ${deps.vectorStoreId} could not be loaded for chat retrieval: ${getDetailedErrorMessage(error)}`,
     });
   }
 
@@ -408,13 +408,13 @@ export async function assertActiveVectorStoreReady(
   if (vectorStore.status !== "completed") {
     throw new CreateChatResponseError({
       code: "upstream_request_failed",
-      message: `Active vector store ${deps.activeVectorStoreId} is not ready for chat retrieval: status=${vectorStore.status}.`,
+      message: `Active vector store ${deps.vectorStoreId} is not ready for chat retrieval: status=${vectorStore.status}.`,
     });
   }
 
   throw new CreateChatResponseError({
     code: "upstream_request_failed",
-    message: `Active vector store ${deps.activeVectorStoreId} does not contain any completed files for chat retrieval.`,
+    message: `Active vector store ${deps.vectorStoreId} does not contain any completed files for chat retrieval.`,
   });
 }
 
@@ -752,13 +752,14 @@ function mergeChatCitations(
 }
 
 export async function resolveOpenAIChatResponse(
-  deps: Pick<CreateChatResponseDeps, "activeVectorStoreId" | "catalogStore">,
+  deps: Pick<CreateChatResponseDeps, "catalogStore">,
   response: OpenAIResponsesCreateResult,
+  vectorStoreId: string,
 ): Promise<ResolvedOpenAIChatResponse> {
   const citations = await getResponseCitations(
     deps.catalogStore,
     response,
-    deps.activeVectorStoreId,
+    vectorStoreId,
   );
   const messageId = getResponseId(response);
   const text = resolveAssistantText(response);
@@ -803,11 +804,13 @@ async function createChatResponseWithSingleContinuation(
       context.history,
       context.resolvedConversationId,
       context.parsedInput.message,
+      context.vectorStoreId,
     ),
   );
   const initialResolvedResponse = await resolveOpenAIChatResponse(
     deps,
     initialResponse,
+    context.vectorStoreId,
   );
 
   if (initialResolvedResponse.incompleteReason !== "max_output_tokens") {
@@ -824,11 +827,13 @@ async function createChatResponseWithSingleContinuation(
         initialResolvedResponse.text,
       ),
       context.resolvedConversationId,
+      context.vectorStoreId,
     ),
   );
   const continuationResolvedResponse = await resolveOpenAIChatResponse(
     deps,
     continuationResponse,
+    context.vectorStoreId,
   );
 
   const mergedText = mergeAssistantTexts(
@@ -879,15 +884,23 @@ export async function resolveCreateChatConversationContext(
   let isNewConversation = false;
   let resolvedConversationId = parsedInput.conversationId;
   let history = null;
+  let datasetVersion: string;
+  let vectorStoreId: string;
 
   if (!resolvedConversationId) {
     isNewConversation = true;
+    const activeDataset =
+      await deps.activeDatasetResolver.resolveActiveDataset();
+    datasetVersion = activeDataset.datasetVersion;
+    vectorStoreId = activeDataset.vectorStoreId;
 
     try {
       const createdConversation =
         await deps.conversationStore.createConversationWithFirstUserMessage({
           content: parsedInput.message,
+          datasetVersion,
           userId: parsedInput.userId,
+          vectorStoreId,
         });
 
       resolvedConversationId = createdConversation.conversationId;
@@ -918,13 +931,25 @@ export async function resolveCreateChatConversationContext(
         message: `Conversation ${resolvedConversationId} was not found for the current user.`,
       });
     }
+
+    if (history.datasetVersion && history.vectorStoreId) {
+      datasetVersion = history.datasetVersion;
+      vectorStoreId = history.vectorStoreId;
+    } else {
+      const activeDataset =
+        await deps.activeDatasetResolver.resolveActiveDataset();
+      datasetVersion = activeDataset.datasetVersion;
+      vectorStoreId = activeDataset.vectorStoreId;
+    }
   }
 
   return {
+    datasetVersion,
     history,
     isNewConversation,
     parsedInput,
     resolvedConversationId,
+    vectorStoreId,
   };
 }
 
@@ -943,8 +968,10 @@ export async function persistCreateChatResponseResult(
         citations: input.citations,
         content: input.text,
         conversationId: input.context.resolvedConversationId,
+        datasetVersion: input.context.datasetVersion,
         providerMessageId: input.messageId,
         userId: input.context.parsedInput.userId,
+        vectorStoreId: input.context.vectorStoreId,
       });
     } else {
       await deps.conversationStore.persistConversationTurnWithCitations({
@@ -952,8 +979,10 @@ export async function persistCreateChatResponseResult(
         assistantProviderMessageId: input.messageId,
         citations: input.citations,
         conversationId: input.context.resolvedConversationId,
+        datasetVersion: input.context.datasetVersion,
         userContent: input.context.parsedInput.message,
         userId: input.context.parsedInput.userId,
+        vectorStoreId: input.context.vectorStoreId,
       });
     }
   } catch (error) {
@@ -974,7 +1003,10 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
     let response;
 
     try {
-      await assertActiveVectorStoreReady(deps);
+      await assertActiveVectorStoreReady({
+        openAI: deps.openAI,
+        vectorStoreId: context.vectorStoreId,
+      });
 
       response = applyChatOutputGuardrails(
         await createChatResponseWithSingleContinuation(deps, context),

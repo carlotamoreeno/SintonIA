@@ -39,11 +39,13 @@ const privacyExportRoleRowSchema = z.object({
 
 const privacyExportConversationRowSchema = z.object({
   created_at: timestampSchema,
+  dataset_version: z.string().min(1).nullable().default(null),
   id: z.string().min(1),
   last_message_at: timestampSchema.nullable(),
   status: z.string().min(1),
   title: z.string().nullable(),
   updated_at: timestampSchema,
+  vector_store_id: z.string().min(1).nullable().default(null),
 });
 
 const privacyExportMessageRoleSchema = z.enum(["user", "assistant", "system"]);
@@ -102,6 +104,7 @@ export type PrivacyExportPayload = {
   }>;
   conversations: Array<{
     createdAt: string;
+    datasetVersion: string | null;
     id: string;
     lastMessageAt: string | null;
     messages: Array<{
@@ -123,6 +126,7 @@ export type PrivacyExportPayload = {
     status: string;
     title: string | null;
     updatedAt: string;
+    vectorStoreId: string | null;
   }>;
   exportedAt: string;
   profile: {
@@ -303,7 +307,9 @@ async function loadConversations(
 ) {
   const { data, error } = await client
     .from("conversations")
-    .select("id, title, status, created_at, updated_at, last_message_at")
+    .select(
+      "id, title, status, created_at, updated_at, last_message_at, dataset_version, vector_store_id",
+    )
     .eq("user_id", userId)
     .order("last_message_at", {
       ascending: false,
@@ -417,11 +423,13 @@ export function createPrivacyExportStore(
         roles,
         conversations: conversations.map((conversation) => ({
           id: conversation.id,
+          datasetVersion: conversation.dataset_version,
           title: conversation.title,
           status: conversation.status,
           createdAt: conversation.created_at,
           updatedAt: conversation.updated_at,
           lastMessageAt: conversation.last_message_at,
+          vectorStoreId: conversation.vector_store_id,
           messages: messagesByConversationId.get(conversation.id) ?? [],
         })),
         consents: consents.map((consent) => ({

@@ -130,7 +130,10 @@ export function createCreateChatResponseStream(
   ): Promise<PreparedChatResponseStream> {
     const context = await resolveCreateChatConversationContext(deps, input);
 
-    await assertActiveVectorStoreReady(deps);
+    await assertActiveVectorStoreReady({
+      openAI: deps.openAI,
+      vectorStoreId: context.vectorStoreId,
+    });
 
     let stream;
 
@@ -141,6 +144,7 @@ export function createCreateChatResponseStream(
           context.history,
           context.resolvedConversationId,
           context.parsedInput.message,
+          context.vectorStoreId,
         ),
         stream: true,
       });
@@ -189,6 +193,7 @@ export function createCreateChatResponseStream(
         const resolvedResponse = await resolveOpenAIChatResponse(
           deps,
           finalResponse,
+          context.vectorStoreId,
         );
 
         mergedResponse = mergedResponse
@@ -227,6 +232,7 @@ export function createCreateChatResponseStream(
                 mergedResponse.text,
               ),
               context.resolvedConversationId,
+              context.vectorStoreId,
             ),
             stream: true,
           });

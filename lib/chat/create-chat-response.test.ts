@@ -18,10 +18,19 @@ function createDeps() {
   const createConversationWithFirstUserMessage = vi.fn();
   const findConversationHistoryForUserById = vi.fn();
   const findDocumentByIdentity = vi.fn();
+  const resolveActiveDataset = vi.fn().mockResolvedValue({
+    activatedAt: "2026-05-14T09:00:00.000Z",
+    datasetVersion: "mvp-2026-03",
+    source: "active_registry",
+    vectorStoreId: "vs_active_123",
+  });
   const createResponse = vi.fn();
   const retrieveVectorStore = vi.fn();
 
   return {
+    activeDatasetResolver: {
+      resolveActiveDataset,
+    },
     catalogStore: {
       findDocumentByIdentity,
     },
@@ -43,6 +52,7 @@ function createDeps() {
       persistAssistantMessageWithCitations,
       persistConversationTurnWithCitations,
       retrieveVectorStore,
+      resolveActiveDataset,
     },
   };
 }
@@ -66,7 +76,7 @@ function createChatResponseService(
   overrides: Partial<Parameters<typeof createCreateChatResponse>[0]> = {},
 ) {
   return createCreateChatResponse({
-    activeVectorStoreId: "vs_active_123",
+    activeDatasetResolver: deps.activeDatasetResolver,
     catalogStore: deps.catalogStore,
     conversationStore: deps.conversationStore,
     enablePromptCaching: false,
@@ -179,7 +189,9 @@ describe("createCreateChatResponse", () => {
       deps.spies.createConversationWithFirstUserMessage,
     ).toHaveBeenCalledWith({
       content: "Consulta inicial",
+      datasetVersion: "mvp-2026-03",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(
       deps.spies.findConversationHistoryForUserById,
@@ -210,8 +222,10 @@ describe("createCreateChatResponse", () => {
       citations: [],
       content: "Respuesta inicial",
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_123",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(
       deps.spies.persistConversationTurnWithCitations,
@@ -302,8 +316,10 @@ describe("createCreateChatResponse", () => {
       assistantProviderMessageId: "resp_456",
       citations: [],
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       userContent: "Nueva pregunta",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(
       deps.spies.persistAssistantMessageWithCitations,
@@ -315,6 +331,69 @@ describe("createCreateChatResponse", () => {
       messageId: "resp_456",
       text: "Seguimos con la consulta",
     });
+  });
+
+  it("keeps existing pinned conversations on their original vector store", async () => {
+    const deps = createDeps();
+    deps.spies.findConversationHistoryForUserById.mockResolvedValueOnce({
+      createdAt: "2026-03-31T12:00:00.000Z",
+      datasetVersion: "legacy-2026-02",
+      id: "conversation-1",
+      lastMessageAt: "2026-03-31T12:05:00.000Z",
+      messages: [
+        {
+          citations: [],
+          content: "Mensaje previo del usuario",
+          createdAt: "2026-03-31T12:00:00.000Z",
+          grounded: false,
+          id: "message-1",
+          providerMessageId: null,
+          role: "user",
+        },
+      ],
+      status: "active",
+      title: "Consulta previa",
+      updatedAt: "2026-03-31T12:05:00.000Z",
+      vectorStoreId: "vs_legacy_123",
+    });
+    deps.spies.retrieveVectorStore.mockResolvedValueOnce(
+      createReadyVectorStore(),
+    );
+    deps.spies.createResponse.mockResolvedValueOnce({
+      id: "resp_legacy",
+      output: [],
+      output_text: "Respuesta con dataset anterior",
+    });
+    const createChatResponse = createChatResponseService(deps);
+
+    await createChatResponse({
+      conversationId: "conversation-1",
+      message: "Nueva pregunta",
+      userId: "user-1",
+    });
+
+    expect(deps.spies.resolveActiveDataset).not.toHaveBeenCalled();
+    expect(deps.spies.retrieveVectorStore).toHaveBeenCalledWith(
+      "vs_legacy_123",
+    );
+    expect(deps.spies.createResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [
+          {
+            type: "file_search",
+            vector_store_ids: ["vs_legacy_123"],
+          },
+        ],
+      }),
+    );
+    expect(
+      deps.spies.persistConversationTurnWithCitations,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        datasetVersion: "legacy-2026-02",
+        vectorStoreId: "vs_legacy_123",
+      }),
+    );
   });
 
   it("adds a stable prompt cache key for newly created conversations when enabled", async () => {
@@ -550,8 +629,10 @@ describe("createCreateChatResponse", () => {
       citations: [],
       content: MITIGATED_CHAT_OUTPUT_MESSAGE,
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_unsafe_output",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(result).toEqual({
       citations: [],
@@ -697,8 +778,10 @@ describe("createCreateChatResponse", () => {
       content:
         "Según el corpus, la botánica estudia las plantas y las suculentas almacenan agua.",
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_grounded",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(result).toEqual({
       citations: [
@@ -1036,8 +1119,10 @@ describe("createCreateChatResponse", () => {
       citations: [],
       content: "Texto recuperado desde el item message.",
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_message_only",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
   });
 
@@ -1357,8 +1442,10 @@ describe("createCreateChatResponse", () => {
       citations: [],
       content: CHAT_RESPONSE_MISSING_TEXT_FALLBACK_MESSAGE,
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       providerMessageId: "resp_tool_only",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
   });
 
@@ -1706,8 +1793,10 @@ describe("createCreateChatResponse", () => {
       assistantProviderMessageId: "resp_789",
       citations: [],
       conversationId: "conversation-1",
+      datasetVersion: "mvp-2026-03",
       userContent: "Nueva pregunta",
       userId: "user-1",
+      vectorStoreId: "vs_active_123",
     });
     expect(result).toEqual({
       citations: [],

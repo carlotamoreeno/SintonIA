@@ -18,11 +18,10 @@ describe("parseOpenAIServerEnv", () => {
 
     expect(
       parseOpenAIServerEnv({
-        OPENAI_ACTIVE_VECTOR_STORE_ID: "vs_active_test",
         OPENAI_API_KEY: "sk-test-key",
       }),
     ).toEqual({
-      activeVectorStoreId: "vs_active_test",
+      activeVectorStoreId: null,
       apiKey: "sk-test-key",
       model: DEFAULT_OPENAI_MODEL,
       timeoutMs: DEFAULT_OPENAI_TIMEOUT_MS,
@@ -71,14 +70,16 @@ describe("parseOpenAIServerEnv", () => {
     ).toThrowError(/OPENAI_API_KEY/i);
   });
 
-  it("requires an active vector store id", async () => {
+  it("keeps the active vector store id only as an optional legacy input", async () => {
     const { parseOpenAIServerEnv } = await loadEnvModule();
 
-    expect(() =>
+    expect(
       parseOpenAIServerEnv({
         OPENAI_API_KEY: "sk-test-key",
       }),
-    ).toThrowError(/OPENAI_ACTIVE_VECTOR_STORE_ID/i);
+    ).toMatchObject({
+      activeVectorStoreId: null,
+    });
   });
 
   it("rejects a blank model override", async () => {
