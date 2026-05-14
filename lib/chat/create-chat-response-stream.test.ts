@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCreateChatResponseStream } from "./create-chat-response-stream-core";
 import { CHAT_RESPONSE_TRUNCATED_NOTICE } from "./assistant-text";
 import { BLOCKED_CHAT_INPUT_MESSAGE } from "./input-guardrails";
@@ -67,6 +67,10 @@ function createChatResponseStreamService(deps: ReturnType<typeof createDeps>) {
 }
 
 describe("createCreateChatResponseStream", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("blocks unsafe input before persistence, vector store preflight or streaming", async () => {
     const deps = createDeps();
     const createChatResponseStream = createChatResponseStreamService(deps);
@@ -198,6 +202,7 @@ describe("createCreateChatResponseStream", () => {
   });
 
   it("buffers and mitigates unsafe streamed output before it reaches the client", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const deps = createDeps();
     deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
       conversationId: "conversation-1",
@@ -246,6 +251,8 @@ describe("createCreateChatResponseStream", () => {
     const createChatResponseStream = createChatResponseStreamService(deps);
     const preparedStream = await createChatResponseStream({
       message: "Consulta inicial",
+      requestId: "req_stream_output_123",
+      transport: "sse",
       userId: "user-1",
     });
     const deltas: string[] = [];
@@ -273,6 +280,26 @@ describe("createCreateChatResponseStream", () => {
       messageId: "resp_unsafe_stream",
       text: MITIGATED_CHAT_OUTPUT_MESSAGE,
     });
+    expect(warnSpy).toHaveBeenCalledOnce();
+
+    const logEntry = JSON.parse(warnSpy.mock.calls[0]?.[0] as string) as {
+      details: Record<string, unknown>;
+      request_id: string;
+      status_code: number;
+    };
+
+    expect(logEntry).toMatchObject({
+      request_id: "req_stream_output_123",
+      status_code: 200,
+      details: {
+        action: "mitigated",
+        activation_point: "output",
+        category: "sensitive_guidance",
+        severity: "high",
+        transport: "sse",
+      },
+    });
+    expect(JSON.stringify(logEntry)).not.toContain("instala malware");
   });
 
   it("accepts streamed final responses that expose id and output but not output_text", async () => {

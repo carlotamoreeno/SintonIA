@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAIAdapterError } from "@/lib/openai/adapter-core";
 import { CHAT_RESPONSE_TRUNCATED_NOTICE } from "./assistant-text";
 import {
@@ -87,6 +87,10 @@ function createExpectedPromptCacheKey(conversationId: string) {
 }
 
 describe("createCreateChatResponse", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("locks the assistant to SintonIA scope, rejects role override attempts and constrains lightweight markdown output", () => {
     expect(CHAT_RESPONSE_INSTRUCTIONS).toContain(
       "Tu función es ayudar solo con SintonIA",
@@ -475,6 +479,7 @@ describe("createCreateChatResponse", () => {
   });
 
   it("mitigates unsafe assistant output before persistence and return", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const deps = createDeps();
     deps.spies.createConversationWithFirstUserMessage.mockResolvedValueOnce({
       conversationId: "conversation-1",
@@ -534,6 +539,8 @@ describe("createCreateChatResponse", () => {
 
     const result = await createChatResponse({
       message: "Consulta inicial",
+      requestId: "req_runtime_output_123",
+      transport: "json",
       userId: "user-1",
     });
 
@@ -553,6 +560,29 @@ describe("createCreateChatResponse", () => {
       messageId: "resp_unsafe_output",
       text: MITIGATED_CHAT_OUTPUT_MESSAGE,
     });
+    expect(warnSpy).toHaveBeenCalledOnce();
+
+    const logEntry = JSON.parse(warnSpy.mock.calls[0]?.[0] as string) as {
+      details: Record<string, unknown>;
+      event: string;
+      request_id: string;
+      status_code: number;
+    };
+
+    expect(logEntry).toMatchObject({
+      event: "chat_guardrail_incident",
+      request_id: "req_runtime_output_123",
+      status_code: 200,
+      details: {
+        action: "mitigated",
+        activation_point: "output",
+        category: "sensitive_guidance",
+        reason: "explicit_harmful_instructions",
+        severity: "high",
+        transport: "json",
+      },
+    });
+    expect(JSON.stringify(logEntry)).not.toContain("instala malware");
   });
 
   it("builds grounded citations from assistant annotations and file search results", async () => {

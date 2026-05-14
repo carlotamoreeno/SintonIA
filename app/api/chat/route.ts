@@ -25,6 +25,14 @@ import {
   BLOCKED_CHAT_INPUT_MESSAGE,
   classifyChatInputRisk,
 } from "@/lib/chat/input-guardrails";
+import {
+  logChatGuardrailIncident,
+  type ChatGuardrailTransport,
+} from "@/lib/chat/security-incidents";
+import {
+  REQUEST_ID_HEADER,
+  resolveRequestId,
+} from "@/lib/observability/request-context";
 import { chatRateLimitStore } from "@/lib/supabase/chat-rate-limit-store";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +46,10 @@ async function getRequestPayload(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const requestId = resolveRequestId(request.headers.get(REQUEST_ID_HEADER));
+  const transport: ChatGuardrailTransport = isChatStreamingRequest(request)
+    ? "sse"
+    : "json";
   const appSession = await getOptionalAppSession();
 
   if (!appSession?.session.user) {
@@ -64,6 +76,15 @@ export async function POST(request: Request) {
   const inputGuardrail = classifyChatInputRisk(parsedBody.data.message);
 
   if (inputGuardrail.blocked) {
+    logChatGuardrailIncident({
+      action: "blocked",
+      decision: inputGuardrail,
+      requestId,
+      statusCode: 400,
+      transport,
+      userId: appSession.persistedIdentity.user.id,
+    });
+
     return NextResponse.json(
       buildInvalidChatRequestPayload({
         message: [BLOCKED_CHAT_INPUT_MESSAGE],
@@ -96,10 +117,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (isChatStreamingRequest(request)) {
+    if (transport === "sse") {
       const preparedStream = await createChatResponseStream({
         conversationId: parsedBody.data.conversationId,
         message: parsedBody.data.message,
+        requestId,
+        transport,
         userId: appSession.persistedIdentity.user.id,
       });
       const encoder = new TextEncoder();
@@ -161,6 +184,8 @@ export async function POST(request: Request) {
     const response = await createChatResponse({
       conversationId: parsedBody.data.conversationId,
       message: parsedBody.data.message,
+      requestId,
+      transport,
       userId: appSession.persistedIdentity.user.id,
     });
 

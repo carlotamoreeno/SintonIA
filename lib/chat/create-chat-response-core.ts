@@ -22,11 +22,22 @@ import {
   MITIGATED_CHAT_OUTPUT_MESSAGE,
   type ChatOutputGuardrailDecision,
 } from "./output-guardrails";
+import {
+  logChatGuardrailIncident,
+  type ChatGuardrailTransport,
+} from "./security-incidents";
 import type { KnowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
 import type { ConversationStore } from "@/lib/supabase/conversation-store";
 import { chatRequestBodySchema } from "./chat-route";
 
 const createChatResponseInputSchema = chatRequestBodySchema.extend({
+  requestId: z.string().trim().min(1).optional(),
+  transport: z
+    .enum(["json", "sse"] satisfies [
+      ChatGuardrailTransport,
+      ChatGuardrailTransport,
+    ])
+    .default("json"),
   userId: z.string().trim().min(1),
 });
 
@@ -849,6 +860,15 @@ export async function resolveCreateChatConversationContext(
   const inputGuardrail = classifyChatInputRisk(parsedInput.message);
 
   if (inputGuardrail.blocked) {
+    logChatGuardrailIncident({
+      action: "blocked",
+      decision: inputGuardrail,
+      requestId: parsedInput.requestId,
+      statusCode: 400,
+      transport: parsedInput.transport,
+      userId: parsedInput.userId,
+    });
+
     throw new CreateChatResponseError({
       code: "input_blocked",
       guardrail: inputGuardrail,
@@ -959,6 +979,14 @@ export function createCreateChatResponse(deps: CreateChatResponseDeps) {
       response = applyChatOutputGuardrails(
         await createChatResponseWithSingleContinuation(deps, context),
       );
+      logChatGuardrailIncident({
+        action: "mitigated",
+        decision: response.guardrail,
+        requestId: context.parsedInput.requestId,
+        statusCode: 200,
+        transport: context.parsedInput.transport,
+        userId: context.parsedInput.userId,
+      });
     } catch (error) {
       if (error instanceof CreateChatResponseError) {
         throw error;

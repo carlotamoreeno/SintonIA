@@ -22,6 +22,7 @@ import {
   CHAT_RESPONSE_TRUNCATED_CONTINUATION_PROMPT,
   mergeAssistantTexts,
 } from "./assistant-text";
+import { logChatGuardrailIncident } from "./security-incidents";
 
 export type CreateChatResponseStreamClient = {
   retrieveVectorStore: typeof import("@/lib/openai/adapter").openAIAdapter.retrieveVectorStore;
@@ -252,6 +253,14 @@ export function createCreateChatResponseStream(
       const guardedResponse = applyChatOutputGuardrails({
         ...mergedResponse,
         text: finalizedText,
+      });
+      logChatGuardrailIncident({
+        action: "mitigated",
+        decision: guardedResponse.guardrail,
+        requestId: context.parsedInput.requestId,
+        statusCode: 200,
+        transport: context.parsedInput.transport,
+        userId: context.parsedInput.userId,
       });
 
       if (guardedResponse.text.length > 0) {
