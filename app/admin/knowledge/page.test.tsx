@@ -2,15 +2,23 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/auth/roles";
 
-const { getOptionalAppSessionMock, listDocumentsMock, redirectMock } =
-  vi.hoisted(() => ({
-    getOptionalAppSessionMock: vi.fn(),
-    listDocumentsMock: vi.fn(),
-    redirectMock: vi.fn(),
-  }));
+const {
+  getOptionalAppSessionMock,
+  listDocumentsMock,
+  redirectMock,
+  refreshMock,
+} = vi.hoisted(() => ({
+  getOptionalAppSessionMock: vi.fn(),
+  listDocumentsMock: vi.fn(),
+  redirectMock: vi.fn(),
+  refreshMock: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
   redirect: redirectMock,
+  useRouter: () => ({
+    refresh: refreshMock,
+  }),
 }));
 
 vi.mock("@/lib/auth/app-session", () => ({
@@ -111,6 +119,7 @@ describe("AdminKnowledgePage", () => {
       "REDIRECT:/sign-in?callbackUrl=%2Fadmin%2Fknowledge",
     );
     expect(listDocumentsMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(/subir documento/i)).not.toBeInTheDocument();
   });
 
   it("renders a restricted state for regular authenticated users", async () => {
@@ -147,6 +156,10 @@ describe("AdminKnowledgePage", () => {
       expect(listDocumentsMock).toHaveBeenCalledWith({
         limit: 100,
       });
+      expect(screen.getByText(/subir documento/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/dataset/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/doc id/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/pdf/i)).toBeInTheDocument();
       expect(
         screen.getByText(/no hay documentos catalogados/i),
       ).toBeInTheDocument();

@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SignOutForm } from "@/components/auth/sign-out-form";
+import { DocumentUploadForm } from "./document-upload-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
 import {
   canAccessDocumentaryAdmin,
@@ -341,6 +342,8 @@ function AdminKnowledgeShell({
               <p className="text-xs uppercase text-[#707973]">Rol {role}</p>
             </div>
           </div>
+
+          <DocumentUploadForm />
 
           <DocumentInventory inventory={inventory} />
 

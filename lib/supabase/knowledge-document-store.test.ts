@@ -2,6 +2,125 @@ import { describe, expect, it, vi } from "vitest";
 import { createKnowledgeDocumentCatalogStore } from "./knowledge-document-store";
 
 describe("createKnowledgeDocumentCatalogStore", () => {
+  it("creates a pending catalog document with canonical metadata", async () => {
+    const singleMock = vi.fn().mockResolvedValue({
+      data: {
+        id: "doc-row-pending",
+        doc_id: "orchid-care",
+        title: "Guia de orquideas",
+        original_filename: "orchid-guide.pdf",
+        document_version: 2,
+        status: "pending",
+        canonical_path:
+          "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+        mime_type: "application/pdf",
+        sha256: "a".repeat(64),
+        dataset_version: "mvp-2026-03",
+        openai_file_id: null,
+        vector_store_id: null,
+        custom_metadata_json: {},
+        last_indexed_at: null,
+        last_error: null,
+        created_at: "2026-03-30T15:37:24.868Z",
+        updated_at: "2026-03-30T15:55:00.000Z",
+      },
+      error: null,
+    });
+    const selectMock = vi.fn().mockReturnValue({
+      single: singleMock,
+    });
+    const insertMock = vi.fn().mockReturnValue({
+      select: selectMock,
+    });
+    const fromMock = vi.fn().mockReturnValue({
+      insert: insertMock,
+    });
+    const store = createKnowledgeDocumentCatalogStore({
+      from: fromMock,
+    } as never);
+
+    const result = await store.createPendingDocument({
+      canonicalPath:
+        "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+      datasetVersion: "mvp-2026-03",
+      docId: "orchid-care",
+      documentVersion: 2,
+      mimeType: "application/pdf",
+      originalFilename: "orchid-guide.pdf",
+      sha256: "a".repeat(64),
+      title: "Guia de orquideas",
+    });
+
+    expect(fromMock).toHaveBeenCalledWith("knowledge_documents");
+    expect(insertMock).toHaveBeenCalledWith({
+      canonical_path:
+        "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+      custom_metadata_json: {},
+      dataset_version: "mvp-2026-03",
+      doc_id: "orchid-care",
+      document_version: 2,
+      last_error: null,
+      last_indexed_at: null,
+      mime_type: "application/pdf",
+      openai_file_id: null,
+      original_filename: "orchid-guide.pdf",
+      sha256: "a".repeat(64),
+      status: "pending",
+      title: "Guia de orquideas",
+      updated_at: expect.any(String),
+      vector_store_id: null,
+    });
+    expect(selectMock).toHaveBeenCalledWith(
+      "id, doc_id, title, original_filename, document_version, status, canonical_path, mime_type, sha256, dataset_version, openai_file_id, vector_store_id, custom_metadata_json, last_indexed_at, last_error, created_at, updated_at",
+    );
+    expect(result).toMatchObject({
+      canonicalPath:
+        "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+      datasetVersion: "mvp-2026-03",
+      docId: "orchid-care",
+      documentVersion: 2,
+      lastError: null,
+      lastIndexedAt: null,
+      openAIFileId: null,
+      status: "pending",
+      vectorStoreId: null,
+    });
+  });
+
+  it("throws with the catalog cause when creating a pending document fails", async () => {
+    const store = createKnowledgeDocumentCatalogStore({
+      from: vi.fn().mockReturnValue({
+        insert: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: null,
+              error: {
+                code: "23505",
+                message: "duplicate key value violates unique constraint",
+              },
+            }),
+          }),
+        }),
+      }),
+    } as never);
+
+    await expect(
+      store.createPendingDocument({
+        canonicalPath:
+          "datasets/mvp-2026-03/orchid-care/v2/hash--orchid-guide.pdf",
+        datasetVersion: "mvp-2026-03",
+        docId: "orchid-care",
+        documentVersion: 2,
+        mimeType: "application/pdf",
+        originalFilename: "orchid-guide.pdf",
+        sha256: "a".repeat(64),
+        title: "Guia de orquideas",
+      }),
+    ).rejects.toThrow(
+      "Failed to create pending knowledge document: duplicate key value violates unique constraint",
+    );
+  });
+
   it("queries the catalog globally by sha256 and returns the first duplicate", async () => {
     const returnsMock = vi.fn().mockResolvedValue({
       data: [
