@@ -30,6 +30,11 @@ export type ValidatedKnowledgeDocumentCandidate = z.output<
   typeof knowledgeDocumentCandidateSchema
 >;
 
+type KnowledgeDocumentDuplicateLookupStore = Pick<
+  KnowledgeDocumentCatalogStore,
+  "findFirstDocumentBySha256"
+>;
+
 export type KnowledgeDocumentValidationErrorCode =
   | "duplicate_sha256"
   | "file_too_large"
@@ -100,7 +105,7 @@ function isAllowedKnowledgeDocumentMimeType(mimeType: string) {
 
 export async function validateKnowledgeDocumentCandidate(
   input: KnowledgeDocumentCandidateInput,
-  store: KnowledgeDocumentCatalogStore = knowledgeDocumentCatalogStore,
+  store: KnowledgeDocumentDuplicateLookupStore = knowledgeDocumentCatalogStore,
 ): Promise<ValidatedKnowledgeDocumentCandidate> {
   let candidate: ValidatedKnowledgeDocumentCandidate;
 

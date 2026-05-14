@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  AlertTriangle,
   Archive,
-  Database,
-  FileUp,
+  CheckCircle2,
+  FileText,
   LockKeyhole,
   ShieldCheck,
 } from "lucide-react";
@@ -15,6 +16,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { SignOutForm } from "@/components/auth/sign-out-form";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
 import {
@@ -22,34 +32,273 @@ import {
   type DocumentaryAdminRole,
 } from "@/lib/auth/admin-access";
 import { getOptionalAppSession } from "@/lib/auth/app-session";
+import {
+  knowledgeDocumentCatalogStore,
+  type KnowledgeDocumentCatalogDocument,
+  type KnowledgeDocumentCatalogStatus,
+} from "@/lib/supabase/knowledge-document-store";
 
 export const dynamic = "force-dynamic";
 
-const adminModules = [
-  {
-    description: "En preparacion",
-    icon: <Archive className="size-5" />,
-    title: "Inventario documental",
+const ADMIN_KNOWLEDGE_DOCUMENT_LIMIT = 100;
+
+type DocumentInventoryState =
+  | {
+      documents: KnowledgeDocumentCatalogDocument[];
+      status: "ready";
+    }
+  | {
+      status: "error";
+    };
+
+const statusConfig = {
+  attached: {
+    className: "border-[#b7d2be] bg-[#eef6e9] text-[#274f3d]",
+    label: "Adjuntado",
+    variant: "outline",
   },
-  {
-    description: "En preparacion",
-    icon: <FileUp className="size-5" />,
-    title: "Subida documental",
+  failed: {
+    className: "border-[#f0d2d2] bg-[#fff2f2] text-[#8a3d2c]",
+    label: "Con error",
+    variant: "destructive",
   },
-  {
-    description: "En preparacion",
-    icon: <Database className="size-5" />,
-    title: "Operaciones de indice",
+  pending: {
+    className: "border-[#d6d0c5] bg-[#f6f4ec] text-[#566342]",
+    label: "Pendiente",
+    variant: "outline",
   },
-] as const;
+  ready: {
+    className: "border-[#b7d2be] bg-[#dae8be] text-[#274f3d]",
+    label: "Listo",
+    variant: "secondary",
+  },
+  retired: {
+    className: "border-[#d6d0c5] bg-white text-[#707973]",
+    label: "Retirado",
+    variant: "outline",
+  },
+  uploaded: {
+    className: "border-[#c3d7e6] bg-[#edf7fb] text-[#2f566d]",
+    label: "Subido",
+    variant: "outline",
+  },
+} satisfies Record<
+  KnowledgeDocumentCatalogStatus,
+  {
+    className: string;
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+  }
+>;
 
 type AdminKnowledgeShellProps = {
   email: string | null;
+  inventory: DocumentInventoryState;
   name: string | null;
   role: DocumentaryAdminRole;
 };
 
-function AdminKnowledgeShell({ email, name, role }: AdminKnowledgeShellProps) {
+function hasDocumentProblem(document: KnowledgeDocumentCatalogDocument) {
+  return document.status === "failed" || Boolean(document.lastError);
+}
+
+function formatOptionalValue(value: string | null) {
+  return value && value.trim().length > 0 ? value : "Pendiente";
+}
+
+function formatIndexedAt(value: string | null) {
+  if (!value) {
+    return "Sin indexar";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function KnowledgeStatusBadge({
+  status,
+}: {
+  status: KnowledgeDocumentCatalogStatus;
+}) {
+  const config = statusConfig[status];
+
+  return (
+    <Badge className={config.className} variant={config.variant}>
+      {config.label}
+    </Badge>
+  );
+}
+
+function DocumentInventoryTable({
+  documents,
+}: {
+  documents: KnowledgeDocumentCatalogDocument[];
+}) {
+  return (
+    <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/85 shadow-none">
+      <CardHeader>
+        <CardTitle>Inventario documental</CardTitle>
+        <CardDescription>
+          Mostrando hasta {ADMIN_KNOWLEDGE_DOCUMENT_LIMIT} documentos
+          catalogados.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow className="border-[rgba(191,201,193,0.55)]">
+              <TableHead>Documento</TableHead>
+              <TableHead>Dataset</TableHead>
+              <TableHead>Identidad</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead>OpenAI</TableHead>
+              <TableHead>Vector store</TableHead>
+              <TableHead>Indexado</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {documents.map((document) => (
+              <TableRow
+                className="border-[rgba(191,201,193,0.45)] hover:bg-[#f6f4ec]/70"
+                key={document.id}
+              >
+                <TableCell className="min-w-64 whitespace-normal align-top">
+                  <p className="font-medium text-[#1b1c17]">{document.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#707973]">
+                    {document.originalFilename}
+                  </p>
+                </TableCell>
+                <TableCell className="whitespace-normal align-top text-sm text-[#404943]">
+                  {document.datasetVersion}
+                </TableCell>
+                <TableCell className="min-w-48 whitespace-normal align-top">
+                  <p className="font-mono text-xs text-[#404943]">
+                    {document.docId}
+                  </p>
+                  <p className="mt-1 text-xs text-[#707973]">
+                    v{document.documentVersion}
+                  </p>
+                </TableCell>
+                <TableCell className="min-w-52 whitespace-normal align-top">
+                  <KnowledgeStatusBadge status={document.status} />
+                  {document.lastError ? (
+                    <p className="mt-2 max-w-xs whitespace-normal rounded-md bg-[#fff6f1] px-2 py-1 text-xs leading-5 text-[#8a3d2c]">
+                      {document.lastError}
+                    </p>
+                  ) : null}
+                </TableCell>
+                <TableCell className="max-w-48 whitespace-normal break-all align-top font-mono text-xs text-[#404943]">
+                  {formatOptionalValue(document.openAIFileId)}
+                </TableCell>
+                <TableCell className="max-w-48 whitespace-normal break-all align-top font-mono text-xs text-[#404943]">
+                  {formatOptionalValue(document.vectorStoreId)}
+                </TableCell>
+                <TableCell className="whitespace-normal align-top text-sm text-[#404943]">
+                  {formatIndexedAt(document.lastIndexedAt)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DocumentInventory({
+  inventory,
+}: {
+  inventory: DocumentInventoryState;
+}) {
+  if (inventory.status === "error") {
+    return (
+      <Card className="rounded-lg border border-[#f0d2d2] bg-[#fff7f4] shadow-none">
+        <CardHeader>
+          <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-white text-[#8a3d2c]">
+            <AlertTriangle className="size-5" />
+          </div>
+          <CardTitle>No se pudo cargar el inventario documental</CardTitle>
+          <CardDescription>
+            El panel mantiene el acceso protegido, pero la consulta del catalogo
+            no devolvio una respuesta usable.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const documents = inventory.documents;
+  const readyCount = documents.filter(
+    (document) => document.status === "ready",
+  ).length;
+  const problemCount = documents.filter(hasDocumentProblem).length;
+
+  return (
+    <div className="grid gap-5">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/80 shadow-none">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#dae8be] text-[#274f3d]">
+              <Archive className="size-5" />
+            </div>
+            <CardTitle>{documents.length}</CardTitle>
+            <CardDescription>Documentos cargados</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/80 shadow-none">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#eef6e9] text-[#274f3d]">
+              <CheckCircle2 className="size-5" />
+            </div>
+            <CardTitle>{readyCount}</CardTitle>
+            <CardDescription>Listos para consulta</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/80 shadow-none">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#fff2f2] text-[#8a3d2c]">
+              <AlertTriangle className="size-5" />
+            </div>
+            <CardTitle>{problemCount}</CardTitle>
+            <CardDescription>Con incidencias visibles</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+
+      {documents.length > 0 ? (
+        <DocumentInventoryTable documents={documents} />
+      ) : (
+        <Card className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/85 shadow-none">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#f6f4ec] text-[#566342]">
+              <FileText className="size-5" />
+            </div>
+            <CardTitle>No hay documentos catalogados</CardTitle>
+            <CardDescription>
+              El catalogo documental no tiene filas disponibles para mostrar.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function AdminKnowledgeShell({
+  email,
+  inventory,
+  name,
+  role,
+}: AdminKnowledgeShellProps) {
   return (
     <main className="min-h-screen bg-[#f6f4ec] text-[#1b1c17]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-6 sm:px-8">
@@ -81,8 +330,8 @@ function AdminKnowledgeShell({ email, name, role }: AdminKnowledgeShellProps) {
                 Panel documental
               </h1>
               <p className="max-w-2xl text-base leading-7 text-[#566342]">
-                Base protegida para operar el catalogo, la subida documental y
-                los procesos de reindexado del MVP.
+                Base protegida para revisar el catalogo y los estados de
+                indexacion del MVP.
               </p>
             </div>
             <div className="rounded-xl border border-[rgba(191,201,193,0.75)] bg-white/75 px-4 py-3 text-sm text-[#404943]">
@@ -93,22 +342,7 @@ function AdminKnowledgeShell({ email, name, role }: AdminKnowledgeShellProps) {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            {adminModules.map((module) => (
-              <Card
-                className="rounded-lg border border-[rgba(191,201,193,0.55)] bg-white/80 shadow-none"
-                key={module.title}
-              >
-                <CardHeader>
-                  <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-[#dae8be] text-[#274f3d]">
-                    {module.icon}
-                  </div>
-                  <CardTitle>{module.title}</CardTitle>
-                  <CardDescription>{module.description}</CardDescription>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+          <DocumentInventory inventory={inventory} />
 
           <Card className="rounded-lg border border-[#b7d2be] bg-[#eef6e9] shadow-none">
             <CardContent className="flex flex-col gap-3 pt-0 sm:flex-row sm:items-center sm:justify-between">
@@ -181,9 +415,25 @@ export default async function AdminKnowledgePage() {
     return <RestrictedAdminState />;
   }
 
+  let inventory: DocumentInventoryState;
+
+  try {
+    inventory = {
+      documents: await knowledgeDocumentCatalogStore.listDocuments({
+        limit: ADMIN_KNOWLEDGE_DOCUMENT_LIMIT,
+      }),
+      status: "ready",
+    };
+  } catch {
+    inventory = {
+      status: "error",
+    };
+  }
+
   return (
     <AdminKnowledgeShell
       email={user.email ?? null}
+      inventory={inventory}
       name={user.name ?? null}
       role={user.role}
     />

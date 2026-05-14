@@ -2,10 +2,12 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/auth/roles";
 
-const { getOptionalAppSessionMock, redirectMock } = vi.hoisted(() => ({
-  getOptionalAppSessionMock: vi.fn(),
-  redirectMock: vi.fn(),
-}));
+const { getOptionalAppSessionMock, listDocumentsMock, redirectMock } =
+  vi.hoisted(() => ({
+    getOptionalAppSessionMock: vi.fn(),
+    listDocumentsMock: vi.fn(),
+    redirectMock: vi.fn(),
+  }));
 
 vi.mock("next/navigation", () => ({
   redirect: redirectMock,
@@ -13,6 +15,12 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth/app-session", () => ({
   getOptionalAppSession: getOptionalAppSessionMock,
+}));
+
+vi.mock("@/lib/supabase/knowledge-document-store", () => ({
+  knowledgeDocumentCatalogStore: {
+    listDocuments: listDocumentsMock,
+  },
 }));
 
 vi.mock("@/components/auth/sign-out-form", () => ({
@@ -41,6 +49,46 @@ function createAppSession(role: AppRole) {
   };
 }
 
+function createKnowledgeDocument(
+  overrides: Partial<{
+    docId: string;
+    lastError: string | null;
+    lastIndexedAt: string | null;
+    openAIFileId: string | null;
+    status: string;
+    title: string;
+    vectorStoreId: string | null;
+  }> = {},
+) {
+  const docId = overrides.docId ?? "botanica-mvp-v1-corpus-mvp";
+
+  return {
+    id: `row-${docId}`,
+    canonicalPath: `datasets/mvp-2026-03/${docId}/v1/hash--${docId}.pdf`,
+    createdAt: "2026-03-30T10:00:00.000Z",
+    customMetadata: {},
+    datasetVersion: "mvp-2026-03",
+    docId,
+    documentVersion: 1,
+    lastError: overrides.lastError ?? null,
+    lastIndexedAt: overrides.lastIndexedAt ?? "2026-04-01T10:00:00.000Z",
+    mimeType: "application/pdf",
+    openAIFileId:
+      overrides.openAIFileId !== undefined
+        ? overrides.openAIFileId
+        : "file_123",
+    originalFilename: `${docId}.pdf`,
+    sha256: "a".repeat(64),
+    status: overrides.status ?? "ready",
+    title: overrides.title ?? "Corpus MVP botanico",
+    updatedAt: "2026-04-01T10:00:00.000Z",
+    vectorStoreId:
+      overrides.vectorStoreId !== undefined
+        ? overrides.vectorStoreId
+        : "vs_123",
+  };
+}
+
 async function renderAdminKnowledgePage() {
   const { default: AdminKnowledgePage } = await import("./page");
 
@@ -50,6 +98,7 @@ async function renderAdminKnowledgePage() {
 describe("AdminKnowledgePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listDocumentsMock.mockResolvedValue([]);
     redirectMock.mockImplementation((path: string) => {
       throw new Error(`REDIRECT:${path}`);
     });
@@ -61,6 +110,7 @@ describe("AdminKnowledgePage", () => {
     await expect(renderAdminKnowledgePage()).rejects.toThrow(
       "REDIRECT:/sign-in?callbackUrl=%2Fadmin%2Fknowledge",
     );
+    expect(listDocumentsMock).not.toHaveBeenCalled();
   });
 
   it("renders a restricted state for regular authenticated users", async () => {
@@ -75,6 +125,7 @@ describe("AdminKnowledgePage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/no tiene permisos/i)).toBeInTheDocument();
     expect(screen.queryByText(/base protegida/i)).not.toBeInTheDocument();
+    expect(listDocumentsMock).not.toHaveBeenCalled();
   });
 
   it.each(["expert", "admin"] as const)(
@@ -93,6 +144,61 @@ describe("AdminKnowledgePage", () => {
       expect(
         screen.getByText(new RegExp(`rol ${role}`, "i")),
       ).toBeInTheDocument();
+      expect(listDocumentsMock).toHaveBeenCalledWith({
+        limit: 100,
+      });
+      expect(
+        screen.getByText(/no hay documentos catalogados/i),
+      ).toBeInTheDocument();
     },
   );
+
+  it("renders the document inventory with indexing status and problem rows", async () => {
+    listDocumentsMock.mockResolvedValueOnce([
+      createKnowledgeDocument(),
+      createKnowledgeDocument({
+        docId: "orchid-care",
+        lastError: "Vector store file finished with status failed.",
+        openAIFileId: "file_failed",
+        status: "failed",
+        title: "Guia de orquideas",
+        vectorStoreId: null,
+      }),
+    ]);
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("admin"));
+
+    await renderAdminKnowledgePage();
+
+    expect(screen.getByText("Inventario documental")).toBeInTheDocument();
+    expect(screen.getByText("Corpus MVP botanico")).toBeInTheDocument();
+    expect(screen.getByText("Guia de orquideas")).toBeInTheDocument();
+    expect(screen.getAllByText("mvp-2026-03")).toHaveLength(2);
+    expect(screen.getByText("file_123")).toBeInTheDocument();
+    expect(screen.getByText("Pendiente")).toBeInTheDocument();
+    expect(screen.getByText("Listo")).toBeInTheDocument();
+    expect(screen.getByText("Con error")).toBeInTheDocument();
+    expect(
+      screen.getByText("Vector store file finished with status failed."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Documentos cargados")).toBeInTheDocument();
+    expect(screen.getByText("Listos para consulta")).toBeInTheDocument();
+    expect(screen.getByText("Con incidencias visibles")).toBeInTheDocument();
+  });
+
+  it("renders a non-sensitive failure state when the catalog cannot be loaded", async () => {
+    listDocumentsMock.mockRejectedValueOnce(
+      new Error("database-secret-detail"),
+    );
+    getOptionalAppSessionMock.mockResolvedValueOnce(createAppSession("expert"));
+
+    await renderAdminKnowledgePage();
+
+    expect(
+      screen.getByText(/no se pudo cargar el inventario documental/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/consulta del catalogo/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/database-secret-detail/i),
+    ).not.toBeInTheDocument();
+  });
 });
