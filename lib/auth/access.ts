@@ -4,7 +4,12 @@ export const UNAUTHENTICATED_API_MESSAGE = "Not authenticated";
 export const DEFAULT_AUTH_REDIRECT_PATH = "/";
 
 export function isProtectedPagePath(pathname: string) {
-  return pathname === "/chat" || pathname.startsWith("/chat/");
+  return (
+    pathname === "/chat" ||
+    pathname.startsWith("/chat/") ||
+    pathname === "/admin/knowledge" ||
+    pathname.startsWith("/admin/knowledge/")
+  );
 }
 
 export function isProtectedApiPath(pathname: string) {
@@ -12,7 +17,9 @@ export function isProtectedApiPath(pathname: string) {
     pathname === "/api/me" ||
     pathname.startsWith("/api/me/") ||
     pathname === "/api/chat" ||
-    pathname.startsWith("/api/chat/")
+    pathname.startsWith("/api/chat/") ||
+    pathname === "/api/admin" ||
+    pathname.startsWith("/api/admin/")
   );
 }
 

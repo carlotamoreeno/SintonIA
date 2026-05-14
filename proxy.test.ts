@@ -78,6 +78,14 @@ describe("proxy", () => {
       unstable_doesMiddlewareMatch({
         config,
         nextConfig,
+        url: "/admin/knowledge",
+      }),
+    ).toBe(true);
+
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        nextConfig,
         url: "/api/me",
       }),
     ).toBe(true);
@@ -174,9 +182,33 @@ describe("proxy", () => {
     expect(response.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });
 
+  it("redirects anonymous visitors away from the protected admin page", async () => {
+    const response = await callProxy(
+      new NextRequest("https://example.com/admin/knowledge"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/sign-in?callbackUrl=%2Fadmin%2Fknowledge",
+    );
+    expect(response.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
+  });
+
   it("returns 401 JSON for anonymous protected API requests", async () => {
     const response = await callProxy(
       new NextRequest("https://example.com/api/me"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
+    await expect(response.json()).resolves.toEqual({
+      message: UNAUTHENTICATED_API_MESSAGE,
+    });
+  });
+
+  it("returns 401 JSON for anonymous protected admin API requests", async () => {
+    const response = await callProxy(
+      new NextRequest("https://example.com/api/admin/knowledge"),
     );
 
     expect(response.status).toBe(401);
