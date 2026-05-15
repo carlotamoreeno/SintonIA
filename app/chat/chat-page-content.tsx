@@ -210,12 +210,14 @@ function createLocalConversation(message: string) {
 
   return {
     createdAt: timestamp,
+    datasetVersion: null,
     id: createTransientMessageId(LOCAL_CONVERSATION_ID_PREFIX),
     lastMessageAt: timestamp,
     messages: [],
     status: "active",
     title: normalizeLocalConversationTitle(message),
     updatedAt: timestamp,
+    vectorStoreId: null,
   } satisfies PersistedConversationHistoryConversation;
 }
 

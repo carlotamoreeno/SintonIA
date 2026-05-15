@@ -6,6 +6,7 @@ import { z } from "zod";
 import { buildRelativeSignInUrl } from "@/lib/auth/access";
 import { getOptionalAppSession } from "@/lib/auth/app-session";
 import { chatRuntimeEnv } from "@/lib/chat/env";
+import { activeKnowledgeDatasetResolver } from "@/lib/knowledge/active-dataset";
 import { conversationStore } from "@/lib/supabase/conversation-store";
 import type { CreateConversationFormState } from "./create-conversation-form-state";
 
@@ -52,10 +53,23 @@ export async function createConversationAction(
     };
   }
 
+  let activeDataset;
+
+  try {
+    activeDataset = await activeKnowledgeDatasetResolver.resolveActiveDataset();
+  } catch {
+    return {
+      error: "No se pudo resolver el dataset documental activo.",
+      message: rawMessage,
+    };
+  }
+
   const result = await conversationStore.createConversationWithFirstUserMessage(
     {
       userId: appSession.persistedIdentity.user.id,
       content: parsedInput.data.message,
+      datasetVersion: activeDataset.datasetVersion,
+      vectorStoreId: activeDataset.vectorStoreId,
     },
   );
 

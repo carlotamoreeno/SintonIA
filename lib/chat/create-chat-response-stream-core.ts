@@ -10,6 +10,7 @@ import {
   buildConversationInput,
   buildCreateResponseParams,
   buildCreateResponseParamsFromInput,
+  applyChatOutputGuardrails,
   getCreateChatResponseUpstreamErrorCode,
   getDetailedErrorMessage,
   persistCreateChatResponseResult,
@@ -19,9 +20,9 @@ import {
 import {
   appendTruncationNotice,
   CHAT_RESPONSE_TRUNCATED_CONTINUATION_PROMPT,
-  getSanitizedDeltaFromSnapshot,
   mergeAssistantTexts,
 } from "./assistant-text";
+import { logChatGuardrailIncident } from "./security-incidents";
 
 export type CreateChatResponseStreamClient = {
   retrieveVectorStore: typeof import("@/lib/openai/adapter").openAIAdapter.retrieveVectorStore;
@@ -129,7 +130,10 @@ export function createCreateChatResponseStream(
   ): Promise<PreparedChatResponseStream> {
     const context = await resolveCreateChatConversationContext(deps, input);
 
-    await assertActiveVectorStoreReady(deps);
+    await assertActiveVectorStoreReady({
+      openAI: deps.openAI,
+      vectorStoreId: context.vectorStoreId,
+    });
 
     let stream;
 
@@ -140,6 +144,7 @@ export function createCreateChatResponseStream(
           context.history,
           context.resolvedConversationId,
           context.parsedInput.message,
+          context.vectorStoreId,
         ),
         stream: true,
       });
@@ -164,32 +169,13 @@ export function createCreateChatResponseStream(
       let shouldAttemptContinuation = true;
 
       while (true) {
-        let previousVisibleText = "";
-
         for await (const event of currentStream) {
           if (event.type !== "response.output_text.delta") {
             continue;
           }
-
-          const snapshot =
-            typeof (event as { snapshot?: string }).snapshot === "string"
-              ? (event as unknown as { snapshot: string }).snapshot
-              : null;
-          const rawSnapshot =
-            snapshot ?? `${previousVisibleText}${event.delta}`;
-          const sanitizedDelta = getSanitizedDeltaFromSnapshot(
-            previousVisibleText,
-            rawSnapshot,
-          );
-
-          previousVisibleText = sanitizedDelta.nextVisibleText;
-
-          if (sanitizedDelta.delta.length > 0) {
-            onDelta?.({
-              delta: sanitizedDelta.delta,
-              type: "response.output_text.delta",
-            });
-          }
+          // Deliberately consume provider deltas without forwarding them.
+          // The final assistant text is classified before any text reaches
+          // the client, so unsafe output cannot leak through SSE.
         }
 
         let finalResponse;
@@ -207,6 +193,7 @@ export function createCreateChatResponseStream(
         const resolvedResponse = await resolveOpenAIChatResponse(
           deps,
           finalResponse,
+          context.vectorStoreId,
         );
 
         mergedResponse = mergedResponse
@@ -215,6 +202,7 @@ export function createCreateChatResponseStream(
                 mergedResponse.citations,
                 resolvedResponse.citations,
               ),
+              guardrail: null,
               incompleteReason: resolvedResponse.incompleteReason,
               messageId: resolvedResponse.messageId,
               text: mergeAssistantTexts(
@@ -244,6 +232,7 @@ export function createCreateChatResponseStream(
                 mergedResponse.text,
               ),
               context.resolvedConversationId,
+              context.vectorStoreId,
             ),
             stream: true,
           });
@@ -267,20 +256,39 @@ export function createCreateChatResponseStream(
         mergedResponse.incompleteReason === "max_output_tokens"
           ? appendTruncationNotice(mergedResponse.text)
           : mergedResponse.text;
+      const guardedResponse = applyChatOutputGuardrails({
+        ...mergedResponse,
+        text: finalizedText,
+      });
+      logChatGuardrailIncident({
+        action: "mitigated",
+        decision: guardedResponse.guardrail,
+        requestId: context.parsedInput.requestId,
+        statusCode: 200,
+        transport: context.parsedInput.transport,
+        userId: context.parsedInput.userId,
+      });
+
+      if (guardedResponse.text.length > 0) {
+        onDelta?.({
+          delta: guardedResponse.text,
+          type: "response.output_text.delta",
+        });
+      }
 
       await persistCreateChatResponseResult(deps, {
-        citations: mergedResponse.citations,
+        citations: guardedResponse.citations,
         context,
-        messageId: mergedResponse.messageId,
-        text: finalizedText,
+        messageId: guardedResponse.messageId,
+        text: guardedResponse.text,
       });
 
       return {
-        citations: mergedResponse.citations,
+        citations: guardedResponse.citations,
         conversationId: context.resolvedConversationId,
-        grounded: mergedResponse.citations.length > 0,
-        messageId: mergedResponse.messageId,
-        text: finalizedText,
+        grounded: guardedResponse.citations.length > 0,
+        messageId: guardedResponse.messageId,
+        text: guardedResponse.text,
       };
     };
 

@@ -118,9 +118,13 @@ type InitialManifestOpenAIClient = Pick<
   OpenAIAdapter,
   "retrieveFile" | "retrieveVectorStoreFile" | "searchVectorStore"
 >;
+type InitialManifestCatalogStore = Pick<
+  KnowledgeDocumentCatalogStore,
+  "findDocumentByIdentity"
+>;
 
 type InitialCatalogManifestVerifierDeps = {
-  catalogStore?: KnowledgeDocumentCatalogStore;
+  catalogStore?: InitialManifestCatalogStore;
   openAI?: InitialManifestOpenAIClient;
   supabase?: InitialManifestSupabaseClient;
 };

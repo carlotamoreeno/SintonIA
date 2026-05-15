@@ -80,6 +80,17 @@ export type KnowledgeDocumentCatalogDocument = ExistingKnowledgeDocument & {
 };
 
 export type KnowledgeDocumentCatalogStore = {
+  createPendingDocument(input: {
+    canonicalPath: string;
+    customMetadata?: Record<string, unknown>;
+    datasetVersion: string;
+    docId: string;
+    documentVersion: number;
+    mimeType: string;
+    originalFilename: string;
+    sha256: string;
+    title: string;
+  }): Promise<KnowledgeDocumentCatalogDocument>;
   findFirstDocumentBySha256(
     sha256: string,
   ): Promise<ExistingKnowledgeDocument | null>;
@@ -90,6 +101,9 @@ export type KnowledgeDocumentCatalogStore = {
   }): Promise<KnowledgeDocumentCatalogDocument | null>;
   findDocumentsByDatasetVersion(input: {
     datasetVersion: string;
+    limit: number;
+  }): Promise<KnowledgeDocumentCatalogDocument[]>;
+  listDocuments(input: {
     limit: number;
   }): Promise<KnowledgeDocumentCatalogDocument[]>;
   recordIndexingState(input: {
@@ -149,6 +163,43 @@ export function createKnowledgeDocumentCatalogStore(
   client: KnowledgeDocumentCatalogStoreClient,
 ): KnowledgeDocumentCatalogStore {
   return {
+    async createPendingDocument(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .insert({
+          canonical_path: input.canonicalPath,
+          custom_metadata_json: input.customMetadata ?? {},
+          dataset_version: input.datasetVersion,
+          doc_id: input.docId,
+          document_version: input.documentVersion,
+          last_error: null,
+          last_indexed_at: null,
+          mime_type: input.mimeType,
+          openai_file_id: null,
+          original_filename: input.originalFilename,
+          sha256: input.sha256,
+          status: "pending",
+          title: input.title,
+          updated_at: getCurrentTimestamp(),
+          vector_store_id: null,
+        })
+        .select(knowledgeDocumentCatalogDocumentSelect)
+        .single<KnowledgeDocumentCatalogDocumentRow>();
+
+      if (error || !data) {
+        throw new Error(
+          `Failed to create pending knowledge document: ${error?.message}`,
+          {
+            cause: error,
+          },
+        );
+      }
+
+      return mapKnowledgeDocumentCatalogDocument(
+        knowledgeDocumentCatalogDocumentRowSchema.parse(data),
+      );
+    },
+
     async findFirstDocumentBySha256(sha256) {
       const { data, error } = await client
         .from("knowledge_documents")
@@ -217,6 +268,32 @@ export function createKnowledgeDocumentCatalogStore(
         throw new Error(
           `Failed to load knowledge documents by dataset version: ${error.message}`,
         );
+      }
+
+      return knowledgeDocumentCatalogDocumentRowSchema
+        .array()
+        .parse(data ?? [])
+        .map(mapKnowledgeDocumentCatalogDocument);
+    },
+
+    async listDocuments(input) {
+      const { data, error } = await client
+        .from("knowledge_documents")
+        .select(knowledgeDocumentCatalogDocumentSelect)
+        .order("dataset_version", {
+          ascending: true,
+        })
+        .order("doc_id", {
+          ascending: true,
+        })
+        .order("document_version", {
+          ascending: false,
+        })
+        .limit(input.limit)
+        .returns<KnowledgeDocumentCatalogDocumentRow[]>();
+
+      if (error) {
+        throw new Error(`Failed to list knowledge documents: ${error.message}`);
       }
 
       return knowledgeDocumentCatalogDocumentRowSchema

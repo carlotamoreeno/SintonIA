@@ -1,5 +1,6 @@
 import "server-only";
 
+import { activeKnowledgeDatasetResolver } from "@/lib/knowledge/active-dataset";
 import { openAIAdapter } from "@/lib/openai/adapter";
 import { openAIServerEnv } from "@/lib/openai/env";
 import { knowledgeDocumentCatalogStore } from "@/lib/supabase/knowledge-document-store";
@@ -10,7 +11,7 @@ import { createCreateChatResponseStream } from "./create-chat-response-stream-co
 export * from "./create-chat-response-stream-core";
 
 export const createChatResponseStream = createCreateChatResponseStream({
-  activeVectorStoreId: openAIServerEnv.activeVectorStoreId,
+  activeDatasetResolver: activeKnowledgeDatasetResolver,
   catalogStore: knowledgeDocumentCatalogStore,
   conversationStore,
   enablePromptCaching: chatRuntimeEnv.enablePromptCaching,

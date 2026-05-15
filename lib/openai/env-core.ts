@@ -30,7 +30,7 @@ const requiredIntegerString = z
 
 const openAIServerEnvSchema = z.object({
   OPENAI_API_KEY: nonEmptyString,
-  OPENAI_ACTIVE_VECTOR_STORE_ID: nonEmptyString,
+  OPENAI_ACTIVE_VECTOR_STORE_ID: nonEmptyString.optional(),
   OPENAI_MODEL: nonEmptyString.default(DEFAULT_OPENAI_MODEL),
   OPENAI_TIMEOUT_MS: z.coerce
     .number()
@@ -72,7 +72,7 @@ const staticVectorStoreFileChunkingEnvSchema = z
   });
 
 export type OpenAIServerEnv = {
-  activeVectorStoreId: string;
+  activeVectorStoreId: string | null;
   apiKey: string;
   model: string;
   timeoutMs: number;
@@ -127,7 +127,7 @@ export function parseOpenAIServerEnv(
   const env = openAIServerEnvSchema.parse(input);
 
   return {
-    activeVectorStoreId: env.OPENAI_ACTIVE_VECTOR_STORE_ID,
+    activeVectorStoreId: env.OPENAI_ACTIVE_VECTOR_STORE_ID ?? null,
     apiKey: env.OPENAI_API_KEY,
     model: env.OPENAI_MODEL,
     timeoutMs: env.OPENAI_TIMEOUT_MS,

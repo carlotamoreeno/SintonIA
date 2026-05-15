@@ -56,7 +56,9 @@ Notas de auth del slice actual:
 Notas de OpenAI del slice actual:
 
 - `OPENAI_MODEL` usa `gpt-5.4-nano` como default server-only del MVP cuando no se define explicitamente.
-- `OPENAI_ACTIVE_VECTOR_STORE_ID` es obligatorio y debe apuntar al vector store activo del entorno.
+- `ACTIVE_DATASET_VERSION` es un fallback de bootstrap: solo se usa si `knowledge_vector_store_registry` todavia no tiene una fila marcada como activa.
+- El chat resuelve el vector store desde `knowledge_vector_store_registry`; las conversaciones nuevas quedan fijadas al `dataset_version` / `vector_store_id` efectivo y las conversaciones existentes conservan su pin.
+- `OPENAI_ACTIVE_VECTOR_STORE_ID` queda como variable de compatibilidad para tooling y documentacion operativa previa, pero ya no es la fuente runtime del vector store usado por `/api/chat`.
 - `OPENAI_VECTOR_STORE_FILE_CHUNKING_STRATEGY` admite `auto` o `static`; el default actual es `auto`.
 - `OPENAI_VECTOR_STORE_FILE_MAX_CHUNK_SIZE_TOKENS` y `OPENAI_VECTOR_STORE_FILE_CHUNK_OVERLAP_TOKENS` solo deben definirse cuando la estrategia es `static`.
 - En `static`, `max_chunk_size_tokens` debe estar entre `100` y `4096`, y `chunk_overlap_tokens` no puede superar la mitad de `max_chunk_size_tokens`.
@@ -139,6 +141,16 @@ El comando:
 - reutiliza el store remoto ya existente cuando se pasa `--existing-vector-store-id`;
 - crea un store nuevo y lo registra solo cuando no se pasa ese flag;
 - no adjunta ni reindexa archivos; ese trabajo sigue diferido al slice de indexacion.
+
+La activacion controlada del dataset activo se hace desde el panel `/admin/knowledge` o desde el endpoint administrativo:
+
+```bash
+curl -X POST "$APP_BASE_URL/api/admin/knowledge/datasets/activate" \
+  -H "content-type: application/json" \
+  -d '{"datasetVersion":"mvp-2026-03"}'
+```
+
+Ese endpoint exige sesion autenticada con rol persistido `expert` o `admin`, verifica que el vector store registrado este listo en OpenAI antes de mutar Supabase y despues ejecuta una activacion transaccional auditada. Solo una fila de `knowledge_vector_store_registry` puede quedar activa a la vez, cada activacion escribe `knowledge_dataset_activation_events`, y no se eliminan ni se retiran vector stores anteriores.
 
 Y ahora existe tambien la adjuncion reproducible de un documento ya subido al vector store registrado para su `dataset_version`:
 
