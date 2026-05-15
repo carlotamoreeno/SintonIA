@@ -37,6 +37,32 @@ La plantilla versionada es [`.env.example`](./.env.example) e incluye estas fami
 
 Los valores por defecto de la plantilla reflejan los limites actuales definidos en el MVP.
 
+## Configuracion congelada MVP
+
+`T-62` congela la configuracion de release del MVP con estos valores operativos:
+
+- URL publica: `https://sinton-ia-taupe.vercel.app`
+- Proyecto Supabase: `https://tkpsbxruivepsdzuddre.supabase.co`
+- Dataset activo: `mvp-2026-03`
+- Vector store activo: `vs_69ca9b4e5e2081919bec55eb91742f70`
+- Modelo OpenAI: `gpt-5.4-nano`
+- Timeout OpenAI: `30000` ms
+- Chunking de vector-store files: `auto`
+- Prompt caching hint: `false`
+- Caps de chat: `4000` caracteres, `12` mensajes de historial, `4096` tokens de salida y `20` requests por minuto
+
+El verificador de release valida esos valores, la presencia de secretos sin imprimirlos, la fila activa de `knowledge_vector_store_registry` y el estado del vector store remoto:
+
+```bash
+npm run test:release:config
+```
+
+Para validar una exportacion puntual de Vercel Production sin escribir sobre `.env.production`, usa:
+
+```bash
+RELEASE_CONFIG_ENV_FILE=/tmp/sintonia-vercel-production.env npm run test:release:config
+```
+
 Semantica actual de los runtime caps:
 
 - `CHAT_ENABLE_PROMPT_CACHING` activa el envio de `prompt_cache_key` a Responses API con una clave estable por conversacion; el default es `false`.
@@ -75,6 +101,7 @@ npm run knowledge:openai:upload -- --dataset-version <value> --doc-id <value> --
 npm run knowledge:vector-store:create -- --dataset-version <value> [--existing-vector-store-id <id>] [--name <value>]
 npm run knowledge:vector-store:attach -- --dataset-version <value> --doc-id <value> --document-version <value>
 npm run knowledge:vector-store:reindex:document -- --dataset-version <value> --doc-id <value> --document-version <value>
+npm run test:release:config
 npm run test
 npm run test:live:chat
 npm run typecheck
