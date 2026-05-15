@@ -15,6 +15,7 @@
     "knowledge:vector-store:reindex:dataset": "tsx ./tools/knowledge/reindex-knowledge-dataset.mts",
     "knowledge:manifest:verify": "tsx ./tools/knowledge/verify-initial-manifest.mts",
     "security:scan-client-bundle": "tsx ./tools/security/scan-client-bundle-secrets.mts",
+    "test:release:rgpd": "tsx ./tools/release/test-release-rgpd.mts",
     "test:release:vercel": "tsx ./tools/release/test-release-vercel.mts",
     "test": "vitest run",
     "test:live:chat": "tsx ./tools/chat/test-live-chat-api.mts",
