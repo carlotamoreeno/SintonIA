@@ -366,3 +366,47 @@ La frase para defender la arquitectura es:
 Next.js orquesta la experiencia, Supabase guarda la verdad auditable y OpenAI
 ejecuta el RAG documental mediante vector stores y File Search.
 ```
+
+Flujo Real:
+
+Un usuario entra en SintonIA desde la URL de producción en Vercel. Usamos Vercel porque encaja muy bien con Next.js: la misma aplicación tiene páginas React, rutas protegidas y endpoints backend como /api/chat, sin tener que montar un servidor aparte.
+
+Al entrar, si el usuario quiere usar el chat, tiene que autenticarse. Para eso usamos Google mediante Auth.js. Esto nos evita construir todo el sistema de cuentas desde cero: no gestionamos contraseñas, recuperación de cuenta, verificación manual de email ni seguridad del login. Google valida quién es la persona y nuestra aplicación recibe una identidad fiable.
+
+Lo importante es esto: Google no nos da “la contraseña”. Nos da datos de identidad, como el proveedor google, un identificador único del usuario en Google, email, nombre, imagen y si el email está verificado. Con eso Auth.js crea una sesión JWT.
+
+Un JWT es como una “tarjeta firmada” que viaja en una cookie. No es una contraseña. Sirve para que, en cada petición, el servidor pueda comprobar: “esta persona ya se autenticó y el token no ha sido manipulado”. En nuestro caso, esa sesión incluye un identificador estable tipo google:<id_de_google>.
+
+Después, nosotros sincronizamos esa identidad con Supabase. Ahí guardamos nuestra parte de negocio: usuario interno, perfil, roles, conversaciones, mensajes, citas, consentimientos, límites de uso, etc. Google se encarga de autenticar; Supabase guarda lo que pertenece a la aplicación.
+Esto se ve principalmente en lib/auth/config.ts, lib/auth/app-session.ts y lib/auth/persisted-identity.ts.
+
+Flujo Del Chat:
+Cuando el usuario escribe una pregunta, el navegador envía un POST /api/chat. Antes de llamar a OpenAI, la aplicación hace varias comprobaciones:
+
+1. Comprueba que el usuario tiene sesión.
+2. Valida que el mensaje tenga el formato correcto.
+3. Pasa por guardrails de entrada, para bloquear intentos peligrosos o fuera de control.
+4. Aplica rate limit, para evitar abuso.
+5. Resuelve qué conversación es y qué dataset documental debe usar.
+
+Ahí entra una parte importante: cada conversación queda asociada a un dataset y a un vector store concreto. Esto significa que si más adelante activamos otro corpus documental, las conversaciones antiguas no cambian de contexto de golpe. Mantienen la misma base documental con la que empezaron.
+
+OpenAI Y El Corpus:
+En SintonIA no hemos entrenado un modelo desde cero. Lo que usamos es RAG: Retrieval Augmented Generation.
+El corpus documental se prepara así:
+
+1. Tenemos documentos PDF.
+2. Se validan: tipo PDF, tamaño, hash, duplicados.
+3. Se guardan en Supabase Storage.
+4. Se registran en Supabase en knowledge_documents.
+5. Se suben a OpenAI Files.
+6. Se adjuntan a un vector store de OpenAI.
+7. OpenAI los indexa internamente para poder hacer búsqueda semántica.
+
+Nosotros no hacemos manualmente los embeddings en cada pregunta. La parte de convertir documentos en una estructura buscable semánticamente la gestiona OpenAI al indexar los documentos en el vector store. En tiempo de pregunta, usamos la herramienta file_search: OpenAI busca dentro del vector store los fragmentos más relacionados con la pregunta.
+
+Luego llamamos a la Responses API con el modelo, el historial reciente de la conversación, las instrucciones del sistema y la herramienta de búsqueda documental. OpenAI devuelve una respuesta y, si ha encontrado evidencias, también devuelve resultados de búsqueda y anotaciones.
+Nuestra aplicación no se limita a pintar la respuesta. Extrae las citas, las normaliza, las guarda en Supabase y marca el mensaje como:
+
+1. Con respaldo documental, si hay citas.
+2. Sin respaldo documental, si no hay evidencias suficientes.
