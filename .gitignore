@@ -45,3 +45,7 @@ scripts
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+!SECURITY.md
+!ARCHITECTURE.md
+!DEVELOPMENT.md
