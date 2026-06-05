@@ -2,8 +2,7 @@
 
 Este documento explica como esta construida SintonIA y como fluye la
 informacion desde que una persona entra en la aplicacion hasta que recibe una
-respuesta con respaldo documental. Esta escrito para que pueda leerlo alguien
-que no sea experto en Next.js, Supabase, OpenAI o RAG.
+respuesta con respaldo documental.
 
 La idea principal es sencilla:
 
